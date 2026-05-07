@@ -178,55 +178,50 @@ function createVariationMaster() {
       return vA.localeCompare(vB);
     });
 
-    // --- 6. 一気に書き出し（白紙に戻してから貼る） ---
-    if (varLastRow >= DATA_START_ROW) {
-      varMasterSheet.getRange(DATA_START_ROW, 1, varLastRow - DATA_START_ROW + 1, varMasterSheet.getLastColumn()).clearContent();
+    // --- 6. 一気に書き出し（行数をピッタリに調整してから貼る） ---
+    if (varMasterSheet.getMaxRows() >= DATA_START_ROW) {
+      varMasterSheet.deleteRows(DATA_START_ROW, varMasterSheet.getMaxRows() - DATA_START_ROW + 1);
     }
+    varMasterSheet.insertRowsAfter(DATA_START_ROW - 1, newRows.length);
+
     varMasterSheet.getRange(DATA_START_ROW, 1, newRows.length, newRows[0].length).setValues(newRows);
 
-    // --- 7. スマートチップを【バケツで一括】復元（5分を数秒にします） ---
+    // --- 7. スマートチップを【一括】復元 ---
     COPY_TO_IDS.forEach(id => {
       if (vCols[id] && mCols[id]) {
-        // 1. マスター側のチップと色を「一列まるごと」バケツに読み込む
         const mRange = masterSheet.getRange(DATA_START_ROW, mCols[id], masterLastRow - DATA_START_ROW + 1, 1);
         const mRichTexts = mRange.getRichTextValues();
         const mBackgrounds = mRange.getBackgrounds();
-
-        // 2. 書き出し用の新しいバケツを用意
         const newRichTexts = [];
         const newBackgrounds = [];
 
-        // 3. 並べ替えた行に合わせて、パソコンの頭の中で中身を移し替える（一瞬）
         newRows.forEach(row => {
           const mKey = String(row[vCols["06"]-1] || "") + "|" + String(row[vCols["01"]-1] || "");
           const srcR = masterLookup.get(mKey);
-          
           if (srcR) {
             const rowIdx = srcR - DATA_START_ROW;
             newRichTexts.push([mRichTexts[rowIdx][0]]);
             newBackgrounds.push([mBackgrounds[rowIdx][0]]);
           } else {
-            // 見つからない場合は空っぽ
             newRichTexts.push([SpreadsheetApp.newRichTextValue().setText("").build()]);
             newBackgrounds.push(["#ffffff"]);
           }
         });
 
-        // 4. バリエーションマスター側に「一列まるごとドカン！」と書き出す
         const vRange = varMasterSheet.getRange(DATA_START_ROW, vCols[id], newRows.length, 1);
         vRange.setRichTextValues(newRichTexts);
         vRange.setBackgrounds(newBackgrounds);
       }
     });
 
-    // --- 8. 日本円のBYROW関数をポツンと置く ---
+    // --- 8. 日本円数式セット ---
     if (vCols["15"] && vCols["14"] && vCols["13"]) {
       const finalR = DATA_START_ROW + newRows.length - 1;
       const formula = `=BYROW(${getColumnLetter(vCols["13"])}${DATA_START_ROW}:${getColumnLetter(vCols["14"])}${finalR}, LAMBDA(row, IF(INDEX(row,1,2)="", "", ROUND(INDEX(row,1,2) * IF(TRIM(INDEX(row,1,1))="VN", $L$2, IF(TRIM(INDEX(row,1,1))="CN", $L$3, 1))))))`;
       varMasterSheet.getRange(DATA_START_ROW, vCols["15"]).setFormula(formula);
     }
 
-    SpreadsheetApp.getUi().alert(`完了: ${newRows.length}件\n【064】このシートでの追記保護しつつ、最新商品導入と整列が成功しました！`);
+    SpreadsheetApp.getUi().alert(`完了: ${newRows.length}件\n行数もピッタリ調整しました。`);
 
   } catch (e) {
     SpreadsheetApp.getUi().alert("エラー原因: " + e.message);
