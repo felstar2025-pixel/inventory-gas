@@ -38,7 +38,14 @@ const ACTUAL_SKU_GEN_CONFIG = {
     COL_SIZE: 18,               // R列 (09)  サイズ
     COL_COUNTRY: 19,            // S列 (13)  国
     COL_LOCAL_PRICE: 20,        // T列 (14)  現地価格
-    COL_JPY_PRICE: 21           // U列 (15)  日本円
+    COL_JPY_PRICE: 21,          // U列 (15)  日本円
+    COL_TT_PRICE: 22,           // V列 (22) TikTok価格
+    COL_MOBILE_PRICE: 23,       // W列 (23) 移動販売価格
+    COL_RENTAL_PRICE: 24,       // X列 (24) レンタル価格
+    COL_DIFFERENCE: 25,         // Y列 (2000) 入庫ｰ全個数 差異チェック
+    COL_TOTAL_PIECES: 26,       // Z列 (2001) 全在庫合計
+    COL_CUMULATIVE_SALES: 27    // AA列 (2002) 累計販売数
+
   }
 };
 
@@ -115,7 +122,7 @@ function importMasterDataToSKU_V4() {
     for (let r of skuExistingData) {
       const code = String(r[ACTUAL_SKU_GEN_CONFIG.SKU.COL_FULL_CODE - 1] || "").trim(); 
       if (code !== "") {
-        const stockData = r.slice(ACTUAL_SKU_GEN_CONFIG.SKU.COL_JPY_PRICE); 
+        const stockData = r.slice(ACTUAL_SKU_GEN_CONFIG.SKU.COL_CUMULATIVE_SALES); 
         existingStockMap.set(code, stockData);
         existingCodesInSheet.add(code);
       }
@@ -143,6 +150,12 @@ function importMasterDataToSKU_V4() {
     const jpVar        = String(row[colMap["12"] - 1] || "");
     const country      = String(row[colMap["13"] - 1] || "");
     const price        = row[colMap["14"] - 1] || "";
+    const ttPrice      = row[colMap["1000"] - 1] || ""; // TikTok価格(ID:1000)
+    const mobilePrice  = row[colMap["1001"] - 1] || ""; // 移動販売価格(ID:1001)
+    const rentalPrice  = row[colMap["1002"] - 1] || ""; // レンタル価格(ID:1002)
+    const difference   = row[colMap["2000"] - 1] || ""; // 入庫ｰ全個数 差異チェック(2000) 
+    const totalpieces  = row[colMap["2001"] - 1] || ""; // 全在庫合計(2001)
+    const cumulativesales  = row[colMap["2002"] - 1] || ""; // 累計販売数(2002) 
 
     if (!baseCode) continue;
 
@@ -218,8 +231,8 @@ function importMasterDataToSKU_V4() {
         
         const displayUrl = getDirectImageUrl(photoUrl);
 
-        // ★ 全21列の配列を作成
-        let outRow = new Array(ACTUAL_SKU_GEN_CONFIG.SKU.COL_JPY_PRICE).fill("");
+        // ★ 全27列の配列を作成
+        let outRow = new Array(ACTUAL_SKU_GEN_CONFIG.SKU.COL_CUMULATIVE_SALES).fill("");
         
         // ★ 各列への流し込み（I列の追加に伴い、J列以降が自動で右にズレます）
         outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_FULL_CODE - 1]     = fullCode;   
@@ -242,7 +255,13 @@ function importMasterDataToSKU_V4() {
         outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_SIZE - 1]          = sCode;       // R列
         outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_COUNTRY - 1]       = country;     // S列
         outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_LOCAL_PRICE - 1]   = price;       // T列   
-        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_JPY_PRICE - 1]     = "";          // U列   
+        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_JPY_PRICE - 1]     = "";          // U列
+        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_TT_PRICE - 1]  = row[21] || "";
+        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_MOBILE_PRICE - 1]  = row[22] || "";
+        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_RENTAL_PRICE - 1]  = row[23] || "";   
+        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_COL_DIFFERENCE - 1]  =  "";
+        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_TOTAL_PIECES - 1]  =  "";
+        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_CUMULATIVE_SALES - 1]  =  ""; 
         
         if (existingStockMap.has(fullCode)) {
           outRow = outRow.concat(existingStockMap.get(fullCode));
@@ -319,7 +338,12 @@ function importMasterDataToSKU_V4() {
         skuSheet.getRange(ACTUAL_SKU_GEN_CONFIG.SKU.START_ROW, 1, skuLastRow - ACTUAL_SKU_GEN_CONFIG.SKU.START_ROW + 1, skuLastCol).clearContent().setBackground("#ffffff");
       }
     }
-    
+    // ★ 行が足りない場合のみ、一番下に追加する
+    const currentMaxRows = skuSheet.getMaxRows();
+    const neededMaxRows = writeStartRow + outputData.length - 1;
+    if (neededMaxRows > currentMaxRows) {
+      skuSheet.insertRowsAfter(currentMaxRows, neededMaxRows - currentMaxRows);
+    }
     const target = skuSheet.getRange(writeStartRow, 1, outputData.length, maxCol);
     const finalizedData = outputData.map(r => { while (r.length < maxCol) r.push(""); return r; });
     target.setValues(finalizedData).setBackgrounds(outputColors);
