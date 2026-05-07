@@ -168,9 +168,14 @@ function createVariationMaster() {
       varMasterSheet.getRange(DATA_START_ROW, vCols["15"]).setFormula(formula);
     }
 
-    // 並び替え
-    if (vCols["06"] && vCols["12"] && vCols["01"]) {
-      const sortSpecs = [{column: vCols["06"], ascending: true},{column: vCols["12"], ascending: true},{column: vCols["01"], ascending: true}];
+    // --- 【SKUシートの並び順を完全再現】 ---
+    if (vCols["13"] && vCols["06"] && vCols["01"] && vCols["11"]) {
+      const sortSpecs = [
+        {column: vCols["13"], ascending: false}, // 1. 国 (VNを上にするため降順)
+        {column: vCols["06"], ascending: true},  // 2. ベース型番 (昇順)
+        {column: vCols["01"], ascending: true},  // 3. サプライヤー (BCなどを上にするため昇順)
+        {column: vCols["11"], ascending: true}   // 4. バリエーション (A,B,C...順に昇順)
+      ];
       varMasterSheet.getRange(DATA_START_ROW, 1, newRows.length, newRows[0].length).sort(sortSpecs);
     }
 
