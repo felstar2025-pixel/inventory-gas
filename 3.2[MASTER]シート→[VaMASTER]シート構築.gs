@@ -1,34 +1,28 @@
 /**
- * VA マスター作成・更新プログラム【完全統合・最終版】
- * * 1. エラーを絶対に隠さないガード処理（復活）
- * 2. 05_写真URL をそのまま残す処理（復活）
- * 3. 各バリエーション(10,11,12)の抽出処理（復活）
- * 4. スマートチップ等を保持する最強のコピペ(copyTo)
- * 5. VN/CN で正確に判定する日本円(15_)のBYROW関数
+ * VA マスター作成・更新プログラム【完全統合・最終進化版】
+ * - 064_完全SKUコードを「合鍵」にして写真URLを絶対保護
+ * - BC最優先＋バリエーション順の爆速ソート
  */
 
 function createVariationMaster() {
   const SHEET_NAME_MASTER = "MASTER";
   const SHEET_NAME_VAR = "VaMASTER"; 
-  
-  // コピペ（copyTo）でデザインごと丸写ししたい項目ID
-  const COPY_TO_IDS = ["20", "21", "22"]; 
+  const COPY_TO_IDS = ["20", "21", "22"];
 
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const masterSheet = ss.getSheetByName(SHEET_NAME_MASTER);
     const varMasterSheet = ss.getSheetByName(SHEET_NAME_VAR);
-    
-    // 【ガード1】シートが存在するか確認
+
     if (!masterSheet) throw new Error(`シート「${SHEET_NAME_MASTER}」が見つかりません。`);
     if (!varMasterSheet) throw new Error(`シート「${SHEET_NAME_VAR}」が見つかりません。`);
 
     const HEADER_ROW = 6;
     const DATA_START_ROW = 7;
 
-    // --- 1. ヘッダーマッピング（列の特定） ---
+    // --- 1. ヘッダーを読み込む ---
     function getColumnMapping(sheet) {
-      const headers = sheet.getRange(HEADER_ROW, 1, 1, sheet.getLastColumn()).getValues()[0];
+      const headers = sheet.getRange(HEADER_ROW, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
       const mapping = {};
       let hasAnyId = false;
       headers.forEach((header, index) => {
@@ -46,25 +40,41 @@ function createVariationMaster() {
     const masterMapRes = getColumnMapping(masterSheet);
     const varMapRes = getColumnMapping(varMasterSheet);
 
-    // 【ガード2】項目ID（01_等）が存在するか確認
-    if (!masterMapRes.hasAnyId) throw new Error(`「${SHEET_NAME_MASTER}」の6行目に項目IDが見つかりません。`);
-    if (!varMapRes.hasAnyId) throw new Error(`「${SHEET_NAME_VAR}」の6行目に項目IDが見つかりません。`);
+    if (!masterMapRes.hasAnyId) throw new Error(`MASTERシートに項目IDが見つかりません。`);
+    if (!varMapRes.hasAnyId) throw new Error(`VaMASTERシートに項目IDが見つかりません。`);
 
     const mCols = masterMapRes.mapping;
     const vCols = varMapRes.mapping;
 
-    // --- 2. マスターデータ取得 ---
+    // --- 2. 【記憶】Akiraさん提案：064コードを合鍵にして写真URLを保存！ ---
+    const existingPhotoUrls = new Map();
+    const varLastRow = varMasterSheet.getLastRow();
+    
+    // 064_列と05_列が存在する場合のみ記憶を実行
+    if (vCols["064"] && vCols["05"] && varLastRow >= DATA_START_ROW) {
+      const currentVarData = varMasterSheet.getRange(DATA_START_ROW, 1, varLastRow - DATA_START_ROW + 1, varMasterSheet.getLastColumn()).getValues();
+      currentVarData.forEach(row => {
+        const vKey = String(row[vCols["064"]-1] || "").trim(); // 合鍵（064_）
+        const url = row[vCols["05"]-1];                       // 守りたい写真URL
+        if (vKey && url) existingPhotoUrls.set(vKey, url);
+      });
+    }
+
+    // --- 3. MASTERデータの読み込みと【超高速地図（Map）】の作成 ---
     const masterLastRow = masterSheet.getLastRow();
-    
-    // 【ガード3】MASTERシートにデータが存在するか確認
     if (masterLastRow < DATA_START_ROW) throw new Error("MASTERシートにデータが1件もありません。");
-    
     const masterData = masterSheet.getRange(DATA_START_ROW, 1, masterLastRow - DATA_START_ROW + 1, masterSheet.getLastColumn()).getValues();
 
-    const newRows = [];
-    const copyTasks = []; // copyToの予約リスト
+    const masterLookup = new Map();
+    masterData.forEach((mRow, mIdx) => {
+      const mKey = String(mRow[mCols["06"]-1] || "") + "|" + String(mRow[mCols["01"]-1] || "");
+      if (!masterLookup.has(mKey)) masterLookup.set(mKey, DATA_START_ROW + mIdx);
+    });
 
-    // --- 3. データ変換ロジック ---
+    // --- 4. 展開 ＆ 【合体】 ---
+    const newRows = [];
+    const copyTasks = [];
+
     masterData.forEach((row, rowIndex) => {
       const masterRowPos = DATA_START_ROW + rowIndex;
       const modelNum = row[mCols["06"] - 1]; 
@@ -80,12 +90,13 @@ function createVariationMaster() {
 
         const vMatch = vRaw.match(/^([A-ZNS0-9]+)[:：]\s*(.*)/i);
         const vCode = vMatch ? vMatch[1] : vRaw;
+        
+        // ★これが最強の合鍵（DC10001-A-BC のような形になる）
         const vKey = `${modelNum}-${vCode}-${suppCode}`;
         
         let newRow = new Array(varMasterSheet.getLastColumn() || 25).fill("");
-        const currentRowIndex = newRows.length;
 
-        // 【基本項目】
+        // 【基本項目セット】
         if (vCols["064"]) newRow[vCols["064"] - 1] = vKey;
         if (vCols["06"])  newRow[vCols["06"] - 1]  = modelNum;
         if (vCols["01"])  newRow[vCols["01"] - 1]  = rawSupplier;
@@ -93,7 +104,7 @@ function createVariationMaster() {
         if (vCols["13"])  newRow[vCols["13"] - 1]  = row[mCols["13"] - 1];
         if (vCols["14"])  newRow[vCols["14"] - 1]  = row[mCols["14"] - 1];
 
-        // 【復活】バリエーション各言語（10, 11, 12）
+        // 各言語のバリエーション名抽出
         ["10", "11", "12"].forEach(id => {
           if (vCols[id] && mCols[id]) {
             const mCells = String(row[mCols[id] - 1]).split(/[,、\n]/);
@@ -102,7 +113,7 @@ function createVariationMaster() {
           }
         });
 
-        // 【商品名】半角スペース入りで結合
+        // 商品名結合
         const nameConfigs = [{t:"101", b:"07", v:"10"}, {t:"111", b:"08", v:"11"}, {t:"121", b:"16", v:"12"}];
         nameConfigs.forEach(conf => {
           if (vCols[conf.t] && mCols[conf.b]) {
@@ -114,24 +125,20 @@ function createVariationMaster() {
           }
         });
 
-        // 【写真表示とURLの保持】
-        if (vCols["04"] && mCols["05"]) {
-          const url = row[mCols["05"] - 1];
-          if (url) newRow[vCols["04"] - 1] = `=IMAGE("${getDirectImageUrl(url)}")`;
-        }
-        // ★ これで 05_写真URL をそのままテキストとして残します
-        if (vCols["05"] && mCols["05"]) {
-          newRow[vCols["05"] - 1] = row[mCols["05"] - 1];
+        // 【写真URLの合体！】
+        let finalPhotoUrl = row[mCols["05"] - 1] || ""; // デフォルトはMASTERの写真
+        
+        // メモ帳（Map）の中にこの合鍵（vKey）があれば、手入力されたURLに差し替える
+        if (existingPhotoUrls.has(vKey)) {
+          finalPhotoUrl = existingPhotoUrls.get(vKey);
         }
 
-        // 【copyTo対象の予約】
-        COPY_TO_IDS.forEach(id => {
-          if (vCols[id] && mCols[id]) {
-            copyTasks.push({ srcR: masterRowPos, srcC: mCols[id], dstR: DATA_START_ROW + currentRowIndex, dstC: vCols[id] });
-          }
-        });
+        if (vCols["05"]) newRow[vCols["05"] - 1] = finalPhotoUrl;
+        if (vCols["04"] && finalPhotoUrl) {
+          newRow[vCols["04"] - 1] = `=IMAGE("${getDirectImageUrl(finalPhotoUrl)}")`;
+        }
 
-        // 【その他の項目（コピペ対象外）のコピー】
+        // コピペ対象外の項目を埋める
         Object.keys(vCols).forEach(id => {
           const skip = ["064","06","01","09","10","11","12","101","111","121","04","05","15", ...COPY_TO_IDS];
           if (!skip.includes(id) && mCols[id]) {
@@ -143,64 +150,83 @@ function createVariationMaster() {
       });
     });
 
-    // --- 4. 書き出し ---
-    // 【ガード4】書き出すデータがない場合
-    if (newRows.length === 0) throw new Error("書き出せるバリエーションデータが0件でした。");
-    
-    varMasterSheet.getRange(DATA_START_ROW, 1, newRows.length, newRows[0].length).setValues(newRows);
-    
-    // 予約したスマートチップ等のコピペ(copyTo)を一気に実行
-    copyTasks.forEach(t => {
-      masterSheet.getRange(t.srcR, t.srcC).copyTo(varMasterSheet.getRange(t.dstR, t.dstC));
+    if (newRows.length === 0) throw new Error("展開するデータが0件でした。");
+
+    // --- 5. 賢い並び替え（型番 ＞ BC優先 ＞ 色順） ---
+    newRows.sort((a, b) => {
+      // 国 (VN > CN)
+      const cA = String(a[vCols["13"]-1] || "");
+      const cB = String(b[vCols["13"]-1] || "");
+      if (cA !== cB) return cB.localeCompare(cA);
+
+      // 型番 (昇順)
+      const codeA = String(a[vCols["06"]-1] || "");
+      const codeB = String(b[vCols["06"]-1] || "");
+      if (codeA !== codeB) return codeA.localeCompare(codeB);
+
+      // サプライヤー（BCを絶対優先！）
+      const getS = (val) => String(val || "").split(/[:：,，]/)[0].trim().toUpperCase();
+      const sA = getS(a[vCols["01"]-1]);
+      const sB = getS(b[vCols["01"]-1]);
+      if (sA === "BC" && sB !== "BC") return -1;
+      if (sA !== "BC" && sB === "BC") return 1;
+      if (sA !== sB) return sA.localeCompare(sB);
+
+      // バリエーション英字順
+      const vA = String(a[vCols["11"]-1] || "");
+      const vB = String(b[vCols["11"]-1] || "");
+      return vA.localeCompare(vB);
     });
 
-    // --- 5. 日本円(15_)のBYROW関数入力 ---
+    // --- 6. 一気に書き出し（白紙に戻してから貼る） ---
+    if (varLastRow >= DATA_START_ROW) {
+      varMasterSheet.getRange(DATA_START_ROW, 1, varLastRow - DATA_START_ROW + 1, varMasterSheet.getLastColumn()).clearContent();
+    }
+    varMasterSheet.getRange(DATA_START_ROW, 1, newRows.length, newRows[0].length).setValues(newRows);
+
+    // --- 7. スマートチップを超高速で復元 ---
+    newRows.forEach((row, i) => {
+      const dstR = DATA_START_ROW + i;
+      const mKey = String(row[vCols["06"]-1] || "") + "|" + String(row[vCols["01"]-1] || "");
+      const srcR = masterLookup.get(mKey);
+      if (srcR) {
+        COPY_TO_IDS.forEach(id => {
+          if (vCols[id] && mCols[id]) {
+            masterSheet.getRange(srcR, mCols[id]).copyTo(varMasterSheet.getRange(dstR, vCols[id]));
+          }
+        });
+      }
+    });
+
+    // --- 8. 日本円のBYROW関数をポツンと置く ---
     if (vCols["15"] && vCols["14"] && vCols["13"]) {
-      const finalRow = DATA_START_ROW + newRows.length - 1;
-      const c13 = getColumnLetter(vCols["13"]); 
-      const c14 = getColumnLetter(vCols["14"]); 
-      
-      // ★ 判定文字を VN と CN に修正しました
-      const formula = `=BYROW(${c13}${DATA_START_ROW}:${c14}${finalRow}, LAMBDA(row, ` + 
-                      `IF(INDEX(row,1,2)="", "", ` +
-                      `ROUND(INDEX(row,1,2) * IF(TRIM(INDEX(row,1,1))="VN", $L$2, IF(TRIM(INDEX(row,1,1))="CN", $L$3, 1))))))`;
-      
+      const finalR = DATA_START_ROW + newRows.length - 1;
+      const formula = `=BYROW(${getColumnLetter(vCols["13"])}${DATA_START_ROW}:${getColumnLetter(vCols["14"])}${finalR}, LAMBDA(row, IF(INDEX(row,1,2)="", "", ROUND(INDEX(row,1,2) * IF(TRIM(INDEX(row,1,1))="VN", $L$2, IF(TRIM(INDEX(row,1,1))="CN", $L$3, 1))))))`;
       varMasterSheet.getRange(DATA_START_ROW, vCols["15"]).setFormula(formula);
     }
 
-    // --- 【SKUシートの並び順を完全再現】 ---
-    if (vCols["13"] && vCols["06"] && vCols["01"] && vCols["11"]) {
-      const sortSpecs = [
-        {column: vCols["13"], ascending: false}, // 1. 国 (VNを上にするため降順)
-        {column: vCols["06"], ascending: true},  // 2. ベース型番 (昇順)
-        {column: vCols["01"], ascending: true},  // 3. サプライヤー (BCなどを上にするため昇順)
-        {column: vCols["11"], ascending: true}   // 4. バリエーション (A,B,C...順に昇順)
-      ];
-      varMasterSheet.getRange(DATA_START_ROW, 1, newRows.length, newRows[0].length).sort(sortSpecs);
-    }
-
-    SpreadsheetApp.getUi().alert(`更新完了: ${newRows.length}件\n反映しました。`);
+    SpreadsheetApp.getUi().alert(`完了: ${newRows.length}件\n【064】コードでのURL保護と、BC最優先の整列が成功しました！`);
 
   } catch (e) {
-    // エラーはここで確実にキャッチして表示します
-    SpreadsheetApp.getUi().alert("【処理中断】\n原因: " + e.message);
+    SpreadsheetApp.getUi().alert("エラー原因: " + e.message);
   }
 }
 
-// 補助ツール（列番号アルファベット変換）
-function getColumnLetter(col) {
-  let letter = "";
-  while (col > 0) {
-    let t = (col - 1) % 26;
-    letter = String.fromCharCode(65 + t) + letter;
-    col = (col - t) / 26 | 0;
-  }
-  return letter;
-}
-
-// 補助ツール（画像URL変換）
+// （補助機能）写真URL変換
 function getDirectImageUrl(url) {
   if (!url) return "";
-  const idMatch = url.match(/[-\w]{25,}/);
-  return idMatch ? "https://lh3.googleusercontent.com/d/" + idMatch[0] : url;
+  const match = url.match(/(?:id=|d\/)([\w-]+)/);
+  if (match) return `https://drive.google.com/uc?export=download&id=${match[1]}`;
+  return url;
+}
+
+// （補助機能）列番号をA, B, C...に変換
+function getColumnLetter(column) {
+  let temp, letter = '';
+  while (column > 0) {
+    temp = (column - 1) % 26;
+    letter = String.fromCharCode(temp + 65) + letter;
+    column = (column - temp - 1) / 26;
+  }
+  return letter;
 }
