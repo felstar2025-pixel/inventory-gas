@@ -178,11 +178,12 @@ function createVariationMaster() {
       return vA.localeCompare(vB);
     });
 
-    // --- 6. 一気に書き出し（行数をピッタリに調整してから貼る） ---
-    if (varMasterSheet.getMaxRows() >= DATA_START_ROW) {
-      varMasterSheet.deleteRows(DATA_START_ROW, varMasterSheet.getMaxRows() - DATA_START_ROW + 1);
+    // 行が足りない場合のみ、足りない分だけ行を一番下に追加する
+    const currentMaxRows = varMasterSheet.getMaxRows();
+    const neededMaxRows = DATA_START_ROW + newRows.length - 1;
+    if (neededMaxRows > currentMaxRows) {
+      varMasterSheet.insertRowsAfter(currentMaxRows, neededMaxRows - currentMaxRows);
     }
-    varMasterSheet.insertRowsAfter(DATA_START_ROW - 1, newRows.length);
 
     varMasterSheet.getRange(DATA_START_ROW, 1, newRows.length, newRows[0].length).setValues(newRows);
 
