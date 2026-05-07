@@ -256,16 +256,27 @@ function importMasterDataToSKU_V4() {
         outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_COUNTRY - 1]       = country;     // S列
         outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_LOCAL_PRICE - 1]   = price;       // T列   
         outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_JPY_PRICE - 1]     = "";          // U列
-        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_TT_PRICE - 1]  = row[21] || "";
-        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_MOBILE_PRICE - 1]  = row[22] || "";
-        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_RENTAL_PRICE - 1]  = row[23] || "";   
-        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_COL_DIFFERENCE - 1]  =  "";
-        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_TOTAL_PIECES - 1]  =  "";
-        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_CUMULATIVE_SALES - 1]  =  ""; 
+       // U列はすでに "" となっているはずなので、その下から書き換えます
+        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_TT_PRICE - 1]      = ttPrice;     // V列 (TikTok価格)
+        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_MOBILE_PRICE - 1]  = mobilePrice; // W列 (移動販売価格)
+        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_RENTAL_PRICE - 1]  = rentalPrice; // X列 (レンタル価格)
+
+        // ※ついでに名前の重複(COL_COL)があったので直しました
+        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_DIFFERENCE - 1]        = ""; 
+        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_TOTAL_PIECES - 1]      = "";
+        outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_CUMULATIVE_SALES - 1]  = "";
         
+        // ▼▼▼ ここから入れ替え ▼▼▼
         if (existingStockMap.has(fullCode)) {
           outRow = outRow.concat(existingStockMap.get(fullCode));
+          
+          // 【Akiraさんロジック】関数が入る列の「過去の数値」を上書きで消す
+          if (outRow.length > 33) outRow[33] = ""; // AH列（52_倉庫現在庫）
+          if (outRow.length > 37) outRow[37] = ""; // AL列（56_[TT Shop] 現在庫数）
+          if (outRow.length > 41) outRow[41] = ""; // AP列（60_[移動販売] 在庫数）
+          if (outRow.length > 45) outRow[45] = ""; // AT列（73_[レンタル] 在庫数）
         }
+        // ▲▲▲ ここまで ▲▲▲
         
         outputData.push(outRow);
       }
@@ -353,13 +364,29 @@ function importMasterDataToSKU_V4() {
     const colPrice = getColumnLetter(ACTUAL_SKU_GEN_CONFIG.SKU.COL_LOCAL_PRICE); // T列
     const colJpy = getColumnLetter(ACTUAL_SKU_GEN_CONFIG.SKU.COL_JPY_PRICE); // U列
     
-    try {
-      const formula = `=BYROW(${colCountry}${writeStartRow}:${colPrice}${finalRow}, LAMBDA(row, IF(INDEX(row, 1, 2)="", "", IF(INDEX(row, 1, 1)="VN", INDEX(row, 1, 2) * $${colJpy}$2, IF(INDEX(row, 1, 1)="CN", INDEX(row, 1, 2) * $${colJpy}$3, "")))))`;
-      skuSheet.getRange(writeStartRow, ACTUAL_SKU_GEN_CONFIG.SKU.COL_JPY_PRICE).setFormula(formula);
-    } catch (e) {
-      Browser.msgBox("⚠️日本円の数式セット時にエラーが起きました。\n詳細: " + e.message);
-    }
     
+    // ▼▼▼ ここから新しく貼り付ける ▼▼▼
+    try {
+      // U列 (21列目): 15_卸価格(￥)
+      skuSheet.getRange(6, 21).setFormula('={"15_卸価格(￥)"; BYROW(S7:T, LAMBDA(row, IF(INDEX(row, 1, 2)="", "", IF(INDEX(row, 1, 1)="VN", INDEX(row, 1, 2) * $U$2, IF(INDEX(row, 1, 1)="CN", INDEX(row, 1, 2) * $U$3, "")))))}');
+
+      // AH列 (34列目): 52_倉庫現在庫
+      skuSheet.getRange(6, 34).setFormula('={"52_倉庫現在庫"; ARRAYFORMULA(IF(A7:A="", "", AE7:AE - AF7:AF - AG7:AG))}');
+
+      // AL列 (38列目): 56_[TT Shop] 現在庫数
+      skuSheet.getRange(6, 38).setFormula('={"56_[TT Shop] 現在庫数"; ARRAYFORMULA(IF(A7:A="", "", AI7:AI - AJ7:AJ - AK7:AK))}');
+
+      // AP列 (42列目): 60_[移動販売] 在庫数
+      skuSheet.getRange(6, 42).setFormula('={"60_[移動販売] 在庫数"; ARRAYFORMULA(IF(A7:A="", "", AM7:AM - AN7:AN - AO7:AO))}');
+
+      // AT列 (46列目): 73_[レンタル] 在庫数
+      skuSheet.getRange(6, 46).setFormula('={"73_[レンタル] 在庫数"; ARRAYFORMULA(IF(A7:A="", "", AQ7:AQ - AR7:AR - AS7:AS))}');
+
+    } catch (e) {
+      Browser.msgBox("⚠️数式セット時にエラーが起きました。\n詳細: " + e.message);
+    }
+    // ▲▲▲ ここまで ▲▲▲
+        
     Browser.msgBox(`完了！\nI列にTikTok商品名を追加した全21列のデータを展開しました！`);
   } else {
     Browser.msgBox("⚠️ 展開するデータが0件でした。");
