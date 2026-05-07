@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+  body { font-family: sans-serif; margin: 0; padding: 0; background: #f9f9f9; }
+  #info-box { padding: 4px 6px; background: white; border-bottom: 2px solid #ddd; }
+  .top-row { display: flex; justify-content: flex-start; align-items: baseline; line-height: 1.2; }
+  .item-code { font-size: 11px; font-weight: bold; color: #555; width: 30%; text-align: left; }
+  .item-name-en { font-size: 16px; font-weight: bold; color: #333; width: 70%; text-align: left; }
+  .bottom-row { display: flex; justify-content: flex-end; line-height: 1.2; margin-top: 1px; }
+  .item-name-jp { font-size: 11px; font-weight: bold; color: #d32f2f; }
+  #preview { width: 100%; display: block; background: #000; min-height: 250px; object-fit: contain; margin-bottom: 0; }
+  #input-area { padding: 8px; background: #eee; border-top: 1px solid #ccc; }
+  .price-row { display: flex; justify-content: space-between; align-items: flex-end; margin-top: -2px; margin-bottom: 6px; }
+  .price-jp-single { font-size: 16px; font-weight: bold; color: #333; line-height: 1; }
+  .price-vn-single { font-size: 11px; font-weight: bold; color: #888; line-height: 1; }
+
+  /* 写真スライダー用CSS */
+  .slider-box { position: relative; width: 100%; background: #000; text-align: center; margin-bottom: 0; }
+  .nav-btn { 
+    position: absolute; top: 50%; transform: translateY(-50%); 
+    background: rgba(0,0,0,0.3); color: white; border: none; 
+    padding: 6px 8px; font-size: 12px; cursor: pointer; display: none; border-radius: 3px; 
+  }
+  .btn-prev { left: 4px; }
+  .btn-next { right: 4px; }
+  .img-counter { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.6); color: white; padding: 2px 6px; font-size: 10px; border-radius: 4px; display: none; }
+
+  /* ★在庫ビュワー用のスタイル */
+  #stock-viewer {
+    margin-top: 5px;
+    padding: 8px;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    max-height: 250px;
+    overflow-y: auto;
+  }
+  .var-block { margin-bottom: 10px; }
+  .var-title { font-size: 12px; font-weight: bold; color: #333; border-bottom: 1px solid #eee; margin-bottom: 4px; padding-bottom: 2px; }
+  .size-chip-container { display: flex; flex-wrap: wrap; gap: 5px; }
+  .size-chip { 
+    padding: 3px 6px; 
+    font-size: 11px; 
+    border: 1px solid #ddd; 
+    border-radius: 4px; 
+    background: #fafafa;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .stock-num { font-weight: bold; font-size: 13px; }
+  .stock-ok { color: #2e7d32; } /* 在庫あり（緑） */
+  .stock-zero { color: #c62828; } /* 在庫ゼロ（赤） */
+</style>
+</head>
+<body>
+
+<!-- 上半分の基本情報 -->
+<div id="info-box">
+  <div class="top-row">
+    <div id="code-display" class="item-code">コード</div>
+    <div id="name-en-display" class="item-name-en">商品名</div>
+  </div>
+  <div class="bottom-row">
+    <div id="name-jp-display" class="item-name-jp">日本語名</div>
+  </div>
+</div>
+
+<div class="slider-box">
+  <button id="prev-btn" class="nav-btn btn-prev" onclick="changeImg(-1)">＜</button>
+  <img id="preview" style="opacity: 0; transition: opacity 0.2s; cursor: pointer; max-width: 100%;" onclick="openSiteUrl()" title="クリックで問屋サイトを開く">
+  <button id="next-btn" class="nav-btn btn-next" onclick="changeImg(1)">＞</button>
+  <div id="img-counter" class="img-counter">1 / 1</div>
+</div>
+
+<div id="input-area">
+  <div class="price-row">
+    <span id="price-jp-display" class="price-jp-single">¥0</span>
+    <span id="price-vn-display" class="price-vn-single">VND 0</span>
+  </div>
+  
+  <!-- ★在庫一覧表示エリア -->
+  <div id="stock-viewer">
+    <div style="font-size: 11px; color: #666; margin-bottom: 6px;">📦 SKUシート 在庫状況</div>
+    <div id="stock-list">
+      <div style="font-size: 10px; color: #999;">データを読み込んでいます...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let lastUrl = ""; let currentRes = null; let currentImgIndex = 0; 
+
+  setInterval(() => {
+    // 【重要】ここでGASの関数「getSelectedImageUrlViewer」を呼んでいます
+    google.script.run.withSuccessHandler(res => {
+      if (!res || lastUrl === res.url) return;
+      lastUrl = res.url; currentRes = res; 
+      
+      currentImgIndex = 0; 
+      updateImageDisplay(); 
+      
+      document.getElementById('code-display').innerText = res.code;
+      document.getElementById('name-en-display').innerText = res.nameEn;
+      document.getElementById('name-jp-display').innerText = res.nameJp;
+      
+      document.getElementById('price-jp-display').innerText = res.priceJp ? "¥ " + Math.round(Number(res.priceJp)).toLocaleString() : "¥ 0";
+      document.getElementById('price-vn-display').innerText = res.priceVn ? "VND " + Math.round(Number(res.priceVn)).toLocaleString() : "VND 0";
+
+      // SKUの在庫データをHTMLに組み立てる処理
+      const stockList = document.getElementById('stock-list');
+      stockList.innerHTML = ""; 
+
+      if (res.stockData && res.stockData.length > 0) {
+        let grouped = {};
+        res.stockData.forEach(item => {
+          let vName = item.variation || "基本";
+          if (!grouped[vName]) grouped[vName] = [];
+          grouped[vName].push(item);
+        });
+
+        for (let v in grouped) {
+          let block = document.createElement('div');
+          block.className = "var-block";
+
+          let title = document.createElement('div');
+          title.className = "var-title";
+          title.innerText = "■ " + v;
+          block.appendChild(title);
+
+          let chipContainer = document.createElement('div');
+          chipContainer.className = "size-chip-container";
+
+          grouped[v].forEach(s => {
+            let chip = document.createElement('div');
+            chip.className = "size-chip";
+            
+            let stockNum = Number(s.stock);
+            let numClass = stockNum > 0 ? "stock-ok" : "stock-zero";
+            
+            chip.innerHTML = `<span>${s.size}</span> : <span class="stock-num ${numClass}">${stockNum}</span>`;
+            chipContainer.appendChild(chip);
+          });
+
+          block.appendChild(chipContainer);
+          stockList.appendChild(block);
+        }
+      } else {
+        stockList.innerHTML = "<div style='font-size: 11px; color: #999;'>SKUシートにデータが見つかりません。</div>";
+      }
+
+    }).getSelectedImageUrlViewer(); // ← ここが Viewer 用になっています
+  }, 1500);
+
+  function changeImg(step) {
+    if (!currentRes || !currentRes.urls || currentRes.urls.length <= 1) return;
+    currentImgIndex += step;
+    if (currentImgIndex >= currentRes.urls.length) currentImgIndex = 0;
+    if (currentImgIndex < 0) currentImgIndex = currentRes.urls.length - 1;
+    updateImageDisplay();
+  }
+
+  function updateImageDisplay() {
+    if (!currentRes) return;
+    const urls = (currentRes.urls && currentRes.urls.length > 0) ? currentRes.urls : [currentRes.url];
+    const img = document.getElementById('preview');
+    img.src = urls[currentImgIndex] || "";
+    img.style.opacity = "1";
+    
+    const show = urls.length > 1 ? 'block' : 'none';
+    document.getElementById('prev-btn').style.display = show;
+    document.getElementById('next-btn').style.display = show;
+    const counter = document.getElementById('img-counter');
+    counter.style.display = show;
+    counter.innerText = (currentImgIndex + 1) + " / " + urls.length;
+  }
+
+  function openSiteUrl() {
+    if (currentRes && currentRes.siteUrl) {
+      let url = currentRes.siteUrl.trim();
+      if (url.startsWith("http")) {
+        let windowWidth = 800; let windowHeight = 1000;
+        let leftPosition = window.screen.width - windowWidth - 350;
+        if (leftPosition < 0) leftPosition = 0;
+        window.open(url, "SiteWindow", `width=${windowWidth},height=${windowHeight},top=0,left=${leftPosition}`);
+      }
+    }
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,401 @@
+//<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+  body { font-family: sans-serif; margin: 0; padding: 0; background: #f9f9f9; }
+  #info-box { padding: 4px 6px; background: white; border-bottom: 2px solid #ddd; }
+  .top-row { display: flex; justify-content: flex-start; align-items: baseline; line-height: 1.2; }
+  .item-code { font-size: 11px; font-weight: bold; color: #555; width: 30%; text-align: left; }
+  .item-name-en { font-size: 16px; font-weight: bold; color: #333; width: 70%; text-align: left; }
+  .bottom-row { display: flex; justify-content: flex-end; line-height: 1.2; margin-top: 1px; }
+  .item-name-jp { font-size: 11px; font-weight: bold; color: #d32f2f; }
+  #preview { width: 100%; display: block; background: #000; min-height: 250px; object-fit: contain; margin-bottom: 0; }
+  #input-area { padding: 8px; background: #eee; border-top: 1px solid #ccc; }
+  .price-row { display: flex; justify-content: space-between; align-items: flex-end; margin-top: -2px; margin-bottom: 6px; }
+  .price-jp-single { font-size: 16px; font-weight: bold; color: #333; line-height: 1; }
+  .price-vn-single { font-size: 11px; font-weight: bold; color: #888; line-height: 1; }
+  .chip-group { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; margin-bottom: 6px; }
+  .chip { padding: 4px 6px; border: 1px solid #333; border-radius: 4px; font-size: 10px; cursor: pointer; background: white; min-width: 45px; text-align: center; }
+  .chip.selected { border: 2px solid #000; outline: 2px solid #ff4500; background: #ffffd0; }
+  .chip.sold-out { background: #e0e0e0; color: #999; border-color: #ccc; text-decoration: line-through; cursor: not-allowed; }
+  .color-chip { text-shadow: 1px 1px 1px #000; color: white; }
+  
+  #add-btn { width: 100%; padding: 10px; margin-top: 4px; background: #ccc; color: white; border: none; font-size: 12px; font-weight: bold; cursor: not-allowed; border-radius: 4px; transition: background 0.3s; }
+  #add-btn.active { background: #28a745; cursor: pointer; } 
+  #add-btn.loading { background: #007bff; cursor: wait; } 
+  #add-btn.success { background: #17a2b8; cursor: default; } 
+  #add-btn.all-sold-out { background: #333; color: #fff; cursor: not-allowed; border: 2px solid #000; }
+
+  #remove-btn { width: 100%; padding: 8px; margin-top: 4px; background: #ccc; color: white; border: none; font-size: 12px; font-weight: bold; cursor: not-allowed; border-radius: 4px; transition: background 0.3s; }
+  #remove-btn.active { background: #dc3545; cursor: pointer; } 
+  #remove-btn.loading { background: #007bff; cursor: wait; } 
+  #remove-btn.success { background: #6c757d; cursor: default; } 
+  
+  .qty-box { margin-top: 6px; padding: 4px; background: #fff; border-radius: 4px; display: flex; align-items: center; gap: 10px; border: 1px solid #ddd; }
+  #cart-status { margin-top: 10px; padding: 10px; background: #fff; border: 2px solid #ccc; border-radius: 6px; }
+  .status-top { display: flex; justify-content: space-between; align-items: flex-end; font-size: 12px; font-weight: bold; color: #999; margin-bottom: 4px; }
+  .status-bottom { display: flex; justify-content: space-between; align-items: baseline; }
+  .jpy-total { font-size: 20px; font-weight: bold; color: #333; width: 70%; line-height: 1; } 
+  .qty-total { font-size: 20px; font-weight: bold; color: #333; width: 30%; text-align: right; line-height: 1; } 
+  .discount-text { color: #d32f2f; }
+
+  /* ★ ボタン極小化＆写真スライダー用CSS */
+  .slider-box { position: relative; width: 100%; background: #000; text-align: center; margin-bottom: 0; }
+  .nav-btn { 
+    position: absolute; top: 50%; transform: translateY(-50%); 
+    background: rgba(0,0,0,0.3); color: white; border: none; 
+    padding: 6px 8px; /* ★余白を小さく */
+    font-size: 12px;  /* ★矢印を小さく */
+    cursor: pointer; display: none; border-radius: 3px; 
+  }
+  .btn-prev { left: 4px; }
+  .btn-next { right: 4px; }
+  .img-counter { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.6); color: white; padding: 2px 6px; font-size: 10px; border-radius: 4px; display: none; }
+</style>
+</head>
+<body>
+
+<div id="info-box">
+  <div class="top-row">
+    <div id="code-display" class="item-code">コード</div>
+    <div id="name-en-display" class="item-name-en">商品名</div>
+  </div>
+  <div class="bottom-row">
+    <div id="name-jp-display" class="item-name-jp">日本語名</div>
+  </div>
+</div>
+
+<div class="slider-box">
+  <button id="prev-btn" class="nav-btn btn-prev" onclick="changeImg(-1)">＜</button>
+  
+  <img id="preview" 
+       style="opacity: 0; transition: opacity 0.2s; cursor: pointer; max-width: 100%;" 
+       onclick="openSiteUrl()" 
+       title="クリックで問屋サイトを開く">
+  
+  <button id="next-btn" class="nav-btn btn-next" onclick="changeImg(1)">＞</button>
+  <div id="img-counter" class="img-counter">1 / 1</div>
+</div>
+
+<div id="input-area">
+  <div class="price-row">
+    <span id="price-jp-display" class="price-jp-single">¥0</span>
+    <span id="price-vn-display" class="price-vn-single">VND 0</span>
+  </div>
+  
+  <div style="font-size:10px; color:#666;">サイズ: <div id="size-palette" class="chip-group"></div></div>
+  <div style="font-size:10px; color:#666;">色: <div id="color-palette" class="chip-group"></div></div>
+
+  <div class="qty-box">
+    <span style="font-size:11px; font-weight:bold; color:#28a745;">追加:</span>
+    <select id="qty-select" onchange="toggleQtyInput()">
+      <option value="1">+ 1</option>
+      <option value="2">+ 2</option>
+      <option value="3">+ 3</option>
+      <option value="4">+ 4</option>
+      <option value="manual">+ 5~</option>
+    </select>
+    <input type="number" id="qty-manual" value="5" min="5" style="display:none; width:38px;">
+    <button id="refresh-btn" onclick="refreshCart()" style="padding: 2px 6px; font-size: 10px; cursor: pointer; border: 1px solid #ccc; background: #fff; border-radius: 3px; margin-left: auto;">🔄 更新</button>
+  </div>
+  <button id="add-btn" disabled onclick="submitToCart()">➕ カートに入れる</button>
+
+  <div class="qty-box" style="margin-top: 8px; border-color: #f5c6cb; background: #fdfdfe;">
+    <span style="font-size:11px; font-weight:bold; color:#dc3545;">減らす:</span>
+    <select id="remove-qty-select" style="border: 1px solid #f5c6cb; color: #dc3545;">
+      <option value="1">- 1</option>
+      <option value="2">- 2</option>
+      <option value="3">- 3</option>
+      <option value="4">- 4</option>
+      <option value="5">- 5</option>
+    </select>
+  </div>
+  <button id="remove-btn" disabled onclick="submitRemoveFromCart()">➖ カートから減らす</button>
+
+  <div id="in-cart-info" style="margin-top: 8px; padding: 6px 10px; background: #e3f2fd; border: 1px dashed #90caf9; border-radius: 4px; font-size: 12px; display: none;">
+  </div>
+
+  <div id="cart-status">
+    <div class="status-top">
+      <span id="cart-vnd">VND 0</span>
+      <span id="cart-discount" class="discount-text">0%オフ 適用</span>
+    </div>
+    <div class="status-bottom">
+      <span id="cart-jpy" class="jpy-total">¥ 0</span>
+      <span id="cart-qty" class="qty-total">🛒 0</span>
+    </div>
+  </div>
+
+</div>
+
+<div style="height: 20px;"></div>
+
+<script>
+  let lastUrl = ""; let currentRes = null; let selectedColor = null; let selectedSize = null; let selectedCCode = null;
+  let currentImgIndex = 0; 
+
+  google.script.run.withSuccessHandler(updateCartStatus).getInitialTotals();
+
+  function toggleQtyInput() {
+    const s = document.getElementById('qty-select');
+    document.getElementById('qty-manual').style.display = (s.value === 'manual') ? 'inline' : 'none';
+  }
+
+  setInterval(() => {
+    google.script.run.withSuccessHandler(res => {
+      if (!res || lastUrl === res.url) return;
+      lastUrl = res.url; currentRes = res; selectedColor = null; selectedSize = null;
+      
+      currentImgIndex = 0; 
+      updateImageDisplay(); 
+      
+      document.getElementById('code-display').innerText = res.code;
+      document.getElementById('name-en-display').innerText = res.nameEn;
+      document.getElementById('name-jp-display').innerText = res.nameJp;
+      
+      // === Math.round() を使って、小数を四捨五入して整数にしてから表示！ ===
+      document.getElementById('price-jp-display').innerText = res.priceJp ? "¥ " + Math.round(Number(res.priceJp)).toLocaleString() : "¥ 0";
+      document.getElementById('price-vn-display').innerText = res.priceVn ? "VND " + Math.round(Number(res.priceVn)).toLocaleString() : "VND 0";
+
+      const sp = document.getElementById('size-palette'); sp.innerHTML = "";
+      res.size.split(',').forEach(s => {
+        let val = s.trim();
+        if (!val) return;
+        const d = document.createElement('div'); 
+        
+        let isSoldOut = val.includes('完');
+        if (isSoldOut) {
+          d.className = 'chip sold-out';
+          d.innerText = val; 
+        } else {
+          d.className = 'chip';
+          d.innerText = val;
+          d.onclick = () => { 
+            if (currentRes.soldOutAll) return; 
+            selectedSize = val; 
+            document.querySelectorAll('#size-palette .chip').forEach(el => el.classList.remove('selected'));
+            d.classList.add('selected'); checkSelection(); 
+          };
+        }
+        sp.appendChild(d);
+      });
+
+      const cp = document.getElementById('color-palette'); cp.innerHTML = "";
+      const jps = res.colorJp.split(','); const cds = res.cCodes.split(',');
+      jps.forEach((name, i) => {
+        let val = name.trim();
+        if (!val) return;
+        const d = document.createElement('div'); 
+        
+        let isColorSoldOut = val.includes('完');
+        if (isColorSoldOut) {
+          d.className = 'chip sold-out';
+          d.innerText = val;
+          d.style.backgroundColor = '#e0e0e0';
+          d.style.color = '#999';
+          d.style.textShadow = 'none';
+        } else {
+          d.className = 'chip color-chip';
+          let bg = cds[i] ? cds[i].trim().toLowerCase() : 'gray'; 
+          d.style.backgroundColor = bg;
+          if(bg === 'white' || bg === '#ffffff') { d.style.color = 'black'; d.style.textShadow = 'none'; }
+          d.innerText = val;
+          d.onclick = () => { 
+            if (currentRes.soldOutAll) return; 
+            selectedColor = val; selectedCCode = bg;
+            document.querySelectorAll('#color-palette .chip').forEach(el => el.classList.remove('selected'));
+            d.classList.add('selected'); checkSelection(); 
+          };
+        }
+        cp.appendChild(d);
+      });
+      
+      checkSelection(); 
+
+      const inCartDiv = document.getElementById('in-cart-info');
+      if (res.inCartData && res.inCartData.length > 0) {
+        inCartDiv.style.display = 'block';
+        let htmlStr = '<strong style="color: #0d47a1;">🛒 この商品のカート状況</strong><ul style="margin: 4px 0 0; padding-left: 20px; color: #333;">';
+        res.inCartData.forEach(item => {
+          htmlStr += '<li>' + item.color + ' (' + item.size + ') ： <b>' + item.qty + '</b> 個</li>';
+        });
+        htmlStr += '</ul>';
+        inCartDiv.innerHTML = htmlStr;
+      } else {
+        inCartDiv.style.display = 'none';
+      }
+      
+    }).getSelectedImageUrl();
+  }, 1500);
+
+  function changeImg(step) {
+    if (!currentRes || !currentRes.urls || currentRes.urls.length <= 1) return;
+    currentImgIndex += step;
+    if (currentImgIndex >= currentRes.urls.length) currentImgIndex = 0;
+    if (currentImgIndex < 0) currentImgIndex = currentRes.urls.length - 1;
+    updateImageDisplay();
+  }
+
+  function updateImageDisplay() {
+    if (!currentRes) return;
+    const urls = (currentRes.urls && currentRes.urls.length > 0) ? currentRes.urls : [currentRes.url];
+    
+    const img = document.getElementById('preview');
+    img.src = urls[currentImgIndex] || "";
+    img.style.opacity = "1";
+    
+    const show = urls.length > 1 ? 'block' : 'none';
+    document.getElementById('prev-btn').style.display = show;
+    document.getElementById('next-btn').style.display = show;
+    
+    const counter = document.getElementById('img-counter');
+    counter.style.display = show;
+    counter.innerText = (currentImgIndex + 1) + " / " + urls.length;
+  }
+
+  function checkSelection() {
+    const btn = document.getElementById('add-btn');
+    const rmBtn = document.getElementById('remove-btn');
+    
+    if (currentRes && currentRes.soldOutAll) {
+      btn.className = 'all-sold-out';
+      btn.innerText = "完売 (SOLD OUT)";
+      btn.disabled = true;
+      rmBtn.className = '';
+      rmBtn.disabled = true;
+      return;
+    }
+
+    if (btn.innerText === "完売 (SOLD OUT)") {
+      btn.innerText = "➕ カートに入れる";
+      btn.className = '';
+    }
+
+    if (btn.innerText !== "➕ カートに入れる" && btn.innerText !== "") return;
+
+    let isAlreadyInCart = false;
+    if (selectedColor && selectedSize && currentRes && currentRes.inCartData) {
+      isAlreadyInCart = currentRes.inCartData.some(item => item.color === selectedColor && item.size === selectedSize);
+    }
+
+    if (selectedColor && selectedSize) { 
+      btn.disabled = false; btn.className = 'active'; 
+    } else { 
+      btn.disabled = true; btn.className = ''; 
+    }
+
+    if (isAlreadyInCart) {
+      rmBtn.disabled = false; rmBtn.className = 'active'; 
+    } else {
+      rmBtn.disabled = true; rmBtn.className = ''; 
+    }
+  }
+
+  function submitToCart() {
+    const btn = document.getElementById('add-btn');
+    const rmBtn = document.getElementById('remove-btn');
+    const s = document.getElementById('qty-select'); 
+    const m = document.getElementById('qty-manual');
+    const qty = (s.value === 'manual') ? m.value : s.value;
+    
+    btn.disabled = true; rmBtn.disabled = true;
+    btn.className = 'loading';
+    btn.innerText = "登録中...";
+    
+    google.script.run.withSuccessHandler(res => {
+      btn.className = 'success';
+      btn.innerText = "✔ " + qty + " 個追加！";
+      document.getElementById('qty-select').value = '1';
+      toggleQtyInput();
+      updateCartStatus(res.totals);
+
+      setTimeout(() => {
+        btn.innerText = "➕ カートに入れる";
+        checkSelection(); 
+        lastUrl = ""; 
+      }, 2000);
+
+    }).addToCart({
+      code: currentRes.code, nameEn: currentRes.nameEn, nameJp: currentRes.nameJp,
+      colorVn: currentRes.colorVn, colorJp: currentRes.colorJp,
+      selectedColorJp: selectedColor, selectedCCode: selectedCCode, selectedSize: selectedSize,
+      priceVn: currentRes.priceVn, quantity: qty
+    });
+  }
+
+  function submitRemoveFromCart() {
+    const btn = document.getElementById('add-btn');
+    const rmBtn = document.getElementById('remove-btn');
+    const qty = document.getElementById('remove-qty-select').value;
+    
+    btn.disabled = true; rmBtn.disabled = true;
+    rmBtn.className = 'loading';
+    rmBtn.innerText = "処理中...";
+    
+    google.script.run.withSuccessHandler(res => {
+      rmBtn.className = 'success';
+      rmBtn.innerText = "✔ 減らしました！";
+      document.getElementById('remove-qty-select').value = '1'; 
+      updateCartStatus(res.totals);
+
+      setTimeout(() => {
+        rmBtn.innerText = "➖ カートから減らす";
+        checkSelection(); 
+        lastUrl = ""; 
+      }, 2000);
+
+    }).removeFromCart({
+      code: currentRes.code, 
+      selectedColorJp: selectedColor, 
+      selectedSize: selectedSize,
+      quantity: qty
+    });
+  }
+
+  function updateCartStatus(totals) {
+    if(!totals) return;
+    // === ここも Math.round() で四捨五入してスッキリさせます！ ===
+    document.getElementById('cart-vnd').innerText = totals.vnd ? "VND " + Math.round(Number(totals.vnd)).toLocaleString() : "";
+    let discText = (totals.discount && totals.discount > 0) ? "合計から " + totals.discount + "%オフ 適用" : "割引なし";
+    document.getElementById('cart-discount').innerText = discText;
+    document.getElementById('cart-jpy').innerText = totals.jpy ? "¥ " + Math.round(Number(totals.jpy)).toLocaleString() : "¥ 0";
+    document.getElementById('cart-qty').innerText = "🛒 " + (totals.count || 0);
+  }
+
+  function refreshCart() {
+    const btn = document.getElementById('refresh-btn');
+    btn.innerText = "⏳..."; 
+    btn.disabled = true;
+    google.script.run.withSuccessHandler(res => {
+      updateCartStatus(res);
+      btn.innerText = "🔄 更新"; 
+      btn.disabled = false;
+    }).refreshAndCalculateTotals();
+  }
+  // === 【別ウィンドウで問屋サイトを開く処理：位置を右側に寄せる版】 ===
+  // ・サイドバーの写真がクリックされた時に動きます
+  // ・パソコンの画面幅を自動計算して、サイドバーのすぐ左隣に出るように調整しました
+  function openSiteUrl() {
+    if (currentRes && currentRes.siteUrl) {
+      let url = currentRes.siteUrl.trim();
+      if (url.startsWith("http")) {
+        
+        let windowWidth = 800;  // 窓の横幅
+        let windowHeight = 1000; // 窓の縦幅（少し縦長にしました）
+        
+        // パソコンの画面幅から「窓の幅(800)」と「サイドバーの幅(約400)」を引いて、右端に寄せる計算
+        let leftPosition = window.screen.width - windowWidth - 350;
+        let topPosition = 0; // 上から少しだけ隙間を空ける
+        
+        // 画面が小さいパソコンでマイナスになった時のための安全装置
+        if (leftPosition < 0) leftPosition = 0;
+        
+        // 組み立てた数字を使って窓を開く！
+        window.open(url, "SiteWindow", "width=" + windowWidth + ",height=" + windowHeight + ",top=" + topPosition + ",left=" + leftPosition);
+      }
+    }
+  }
+</script>
+</body>
+</html>
