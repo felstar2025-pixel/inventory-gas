@@ -96,7 +96,7 @@ function importMasterDataToSKU_V4() {
   
   for (let i = 0; i < headerValues.length; i++) {
     const cellValue = normalizeId(headerValues[i]);
-    const match = cellValue.match(/^(\d{2,3})_/); 
+    const match = cellValue.match(/^(\d{2,4})_/); 
     if (match) {
       const id = match[1]; 
       colMap[id] = i + 1;
