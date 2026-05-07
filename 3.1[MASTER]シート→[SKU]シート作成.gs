@@ -382,7 +382,7 @@ function importMasterDataToSKU_V4() {
     }
     // ▲▲▲ ここまで ▲▲▲
         
-    Browser.msgBox(`完了！\nI列にTikTok商品名を追加した全21列のデータを展開しました！`);
+    Browser.msgBox(`完了！\n全データを展開しました！`);
   } else {
     Browser.msgBox("⚠️ 展開するデータが0件でした。");
   }
