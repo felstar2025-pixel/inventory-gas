@@ -256,17 +256,13 @@ function importMasterDataToSKU_V4() {
         outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_COUNTRY - 1]       = country;     // S列
         outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_LOCAL_PRICE - 1]   = price;       // T列   
         outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_JPY_PRICE - 1]     = "";          // U列
-       // U列はすでに "" となっているはずなので、その下から書き換えます
         outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_TT_PRICE - 1]      = ttPrice;     // V列 (TikTok価格)
         outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_MOBILE_PRICE - 1]  = mobilePrice; // W列 (移動販売価格)
         outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_RENTAL_PRICE - 1]  = rentalPrice; // X列 (レンタル価格)
-
-        // ※ついでに名前の重複(COL_COL)があったので直しました
         outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_DIFFERENCE - 1]        = ""; 
         outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_TOTAL_PIECES - 1]      = "";
         outRow[ACTUAL_SKU_GEN_CONFIG.SKU.COL_CUMULATIVE_SALES - 1]  = "";
         
-        // ▼▼▼ ここから入れ替え ▼▼▼
         if (existingStockMap.has(fullCode)) {
           outRow = outRow.concat(existingStockMap.get(fullCode));
           
@@ -276,8 +272,7 @@ function importMasterDataToSKU_V4() {
           if (outRow.length > 41) outRow[41] = ""; // AP列（60_[移動販売] 在庫数）
           if (outRow.length > 45) outRow[45] = ""; // AT列（73_[レンタル] 在庫数）
         }
-        // ▲▲▲ ここまで ▲▲▲
-        
+             
         outputData.push(outRow);
       }
     }
