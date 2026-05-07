@@ -187,31 +187,23 @@ function createVariationMaster() {
 
     varMasterSheet.getRange(DATA_START_ROW, 1, newRows.length, newRows[0].length).setValues(newRows);
 
-    // --- 7. スマートチップを【一括】復元 ---
+    // --- 7. スマートチップ・リンクを【完全】復元 (倉庫シートと同じ copyTo 方式) ---
     COPY_TO_IDS.forEach(id => {
       if (vCols[id] && mCols[id]) {
-        const mRange = masterSheet.getRange(DATA_START_ROW, mCols[id], masterLastRow - DATA_START_ROW + 1, 1);
-        const mRichTexts = mRange.getRichTextValues();
-        const mBackgrounds = mRange.getBackgrounds();
-        const newRichTexts = [];
-        const newBackgrounds = [];
-
-        newRows.forEach(row => {
+        newRows.forEach((row, i) => {
+          // 商品コードとサプライヤーを合鍵にしてマスターの行を特定
           const mKey = String(row[vCols["06"]-1] || "") + "|" + String(row[vCols["01"]-1] || "");
           const srcR = masterLookup.get(mKey);
+          
           if (srcR) {
-            const rowIdx = srcR - DATA_START_ROW;
-            newRichTexts.push([mRichTexts[rowIdx][0]]);
-            newBackgrounds.push([mBackgrounds[rowIdx][0]]);
-          } else {
-            newRichTexts.push([SpreadsheetApp.newRichTextValue().setText("").build()]);
-            newBackgrounds.push(["#ffffff"]);
+            // 【倉庫シート方式】copyTo を使ってスマートチップをそのままコピー
+            const destRange = varMasterSheet.getRange(DATA_START_ROW + i, vCols[id]);
+            masterSheet.getRange(srcR, mCols[id]).copyTo(destRange);
+            
+            // コピーした後に背景色だけリセットして見栄えを整える
+            destRange.setBackground(null);
           }
         });
-
-        const vRange = varMasterSheet.getRange(DATA_START_ROW, vCols[id], newRows.length, 1);
-        vRange.setRichTextValues(newRichTexts);
-        vRange.setBackgrounds(newBackgrounds);
       }
     });
 
