@@ -184,17 +184,38 @@ function createVariationMaster() {
     }
     varMasterSheet.getRange(DATA_START_ROW, 1, newRows.length, newRows[0].length).setValues(newRows);
 
-    // --- 7. スマートチップを超高速で復元 ---
-    newRows.forEach((row, i) => {
-      const dstR = DATA_START_ROW + i;
-      const mKey = String(row[vCols["06"]-1] || "") + "|" + String(row[vCols["01"]-1] || "");
-      const srcR = masterLookup.get(mKey);
-      if (srcR) {
-        COPY_TO_IDS.forEach(id => {
-          if (vCols[id] && mCols[id]) {
-            masterSheet.getRange(srcR, mCols[id]).copyTo(varMasterSheet.getRange(dstR, vCols[id]));
+    // --- 7. スマートチップを【バケツで一括】復元（5分を数秒にします） ---
+    COPY_TO_IDS.forEach(id => {
+      if (vCols[id] && mCols[id]) {
+        // 1. マスター側のチップと色を「一列まるごと」バケツに読み込む
+        const mRange = masterSheet.getRange(DATA_START_ROW, mCols[id], masterLastRow - DATA_START_ROW + 1, 1);
+        const mRichTexts = mRange.getRichTextValues();
+        const mBackgrounds = mRange.getBackgrounds();
+
+        // 2. 書き出し用の新しいバケツを用意
+        const newRichTexts = [];
+        const newBackgrounds = [];
+
+        // 3. 並べ替えた行に合わせて、パソコンの頭の中で中身を移し替える（一瞬）
+        newRows.forEach(row => {
+          const mKey = String(row[vCols["06"]-1] || "") + "|" + String(row[vCols["01"]-1] || "");
+          const srcR = masterLookup.get(mKey);
+          
+          if (srcR) {
+            const rowIdx = srcR - DATA_START_ROW;
+            newRichTexts.push([mRichTexts[rowIdx][0]]);
+            newBackgrounds.push([mBackgrounds[rowIdx][0]]);
+          } else {
+            // 見つからない場合は空っぽ
+            newRichTexts.push([SpreadsheetApp.newRichTextValue().setText("").build()]);
+            newBackgrounds.push(["#ffffff"]);
           }
         });
+
+        // 4. バリエーションマスター側に「一列まるごとドカン！」と書き出す
+        const vRange = varMasterSheet.getRange(DATA_START_ROW, vCols[id], newRows.length, 1);
+        vRange.setRichTextValues(newRichTexts);
+        vRange.setBackgrounds(newBackgrounds);
       }
     });
 
@@ -205,7 +226,7 @@ function createVariationMaster() {
       varMasterSheet.getRange(DATA_START_ROW, vCols["15"]).setFormula(formula);
     }
 
-    SpreadsheetApp.getUi().alert(`完了: ${newRows.length}件\n【064】コードでのURL保護と、BC最優先の整列が成功しました！`);
+    SpreadsheetApp.getUi().alert(`完了: ${newRows.length}件\n【064】このシートでの追記保護しつつ、最新商品導入と整列が成功しました！`);
 
   } catch (e) {
     SpreadsheetApp.getUi().alert("エラー原因: " + e.message);
