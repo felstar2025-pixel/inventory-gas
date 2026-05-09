@@ -222,8 +222,8 @@ function importMasterDataToSKU_V4() {
 
         let fullCodeParts = [baseCode];
         if (vCode) fullCodeParts.push(vCode); 
-        if (sCode) fullCodeParts.push(sCode);
         if (suppCode) fullCodeParts.push(suppCode);
+        if (sCode) fullCodeParts.push(sCode);
         
         let fullCode = fullCodeParts.join("-");
         

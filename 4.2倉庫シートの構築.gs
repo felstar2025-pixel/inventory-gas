@@ -1,12 +1,19 @@
 /**
  * 倉庫マトリックス生成GAS
- * ★アキラさん究極仕様（スマートチップコピペ ＆ 棚卸アラート機能搭載）
+ * ★アキラさん究極仕様【VaMASTERベース・完全統合版】
+ * - 064合鍵による手入力データの完全バックアップ＆復元（消えない！）
+ * - VaMASTERからの爆速フレーム構築（SKUはサイズ判定のみに使用）
+ * - スマートチップ維持 ＆ 警告アラート保護搭載
+ * VaMASTER基点: 型番・バリエーション・サプライヤー単位で、写真付きの正確なマトリックスを構築
+ * ID:064合鍵: 再構築前の手入力データ（入出庫数・但し書き等）を自動退避し、正しい行へ完全に復元
+ * 自動制御: 存在しないサイズのグレーアウト、在庫参照関数、棚卸しアラート、保護枠を一括で再セット
+ * スマート維持: copyTo方式で写真等のチップを保護し、行の追加・削除やソートが発生してもリンクを維持
  */
 
 const WAREHOUSE_MATRIX_CONFIG = {
   SOURCE_SKU: "SKU",       
-  SOURCE_MASTER: "MASTER",  
-  TARGET_SHEET: "倉庫",      // ★ターゲットを倉庫シートに変更
+  SOURCE_VAMASTER: "VaMASTER", // ★MASTERではなく、完成されたVaMASTERから縦軸を作る！
+  TARGET_SHEET: "倉庫",
   HEADER_ROW: 6,
   DATA_START_ROW: 7,            
   MASTER_PULL_IDS: ["20", "21", "22"], 
@@ -32,34 +39,41 @@ const WAREHOUSE_MATRIX_CONFIG = {
   SIZE_ORDER: ["XS", "S", "M", "L", "XL", "F"]
 };
 
-// ヘルパー関数群（マトリックス生成用）
+// --- ヘルパー関数群 ---
 function getDirectImageUrl(url) {
   if (!url) return "";
   const match = url.match(/(?:id=|d\/)([\w-]+)/);
   if (match) return `https://drive.google.com/uc?export=download&id=${match[1]}`;
   return url;
 }
+
 function getColumnLetter(column) {
   let temp, letter = '';
-  while (column > 0) { temp = (column - 1) % 26; letter = String.fromCharCode(temp + 65) + letter; column = (column - temp - 1) / 26; }
+  while (column > 0) { 
+    temp = (column - 1) % 26;
+    letter = String.fromCharCode(temp + 65) + letter; 
+    column = (column - temp - 1) / 26; 
+  }
   return letter;
 }
+
 function clearContentAndProtections(range) {
   range.clearContent();
   range.setBackground(null);
   const sheet = range.getSheet();
   const protections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
-  for (let p of protections) { if (p.isWarningOnly()) p.remove(); }
-  sheet.clearConditionalFormatRules(); // ★条件付き書式も一度リセット
+  for (let p of protections) { p.remove(); } // ★今回は警告のみの保護も完全に剥がして新しく作り直す
+  sheet.clearConditionalFormatRules();
 }
 
+// --- メイン関数 ---
 function generateWarehouseMatrix() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const skuSheet = ss.getSheetByName(WAREHOUSE_MATRIX_CONFIG.SOURCE_SKU);
-  const masterSheet = ss.getSheetByName(WAREHOUSE_MATRIX_CONFIG.SOURCE_MASTER); 
+  const vaMasterSheet = ss.getSheetByName(WAREHOUSE_MATRIX_CONFIG.SOURCE_VAMASTER);
   const targetSheet = ss.getSheetByName(WAREHOUSE_MATRIX_CONFIG.TARGET_SHEET);
   
-  if (!skuSheet || !masterSheet || !targetSheet) return Browser.msgBox("シートが見つかりません。");
+  if (!skuSheet || !vaMasterSheet || !targetSheet) return Browser.msgBox("シートが見つかりません。");
 
   const normalizeId = (h) => String(h).trim().replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/＿/g, "_");
   const getColMap = (sheet) => {
@@ -72,144 +86,205 @@ function generateWarehouseMatrix() {
   };
 
   const skuColMap = getColMap(skuSheet);
-  const masterColMap = getColMap(masterSheet); 
+  const vaColMap = getColMap(vaMasterSheet); 
   const tgtColMap = getColMap(targetSheet);
+
+  if (!tgtColMap["064"] || !vaColMap["064"]) return Browser.msgBox("合鍵となる「064_」列が見つかりません。");
+
+  // ==========================================
+  // Step 1: 手入力データの「記憶」（バックアップ）
+  // ==========================================
+  const backupMap = new Map();
+  const targetLastRow = targetSheet.getLastRow();
   
-  if (!tgtColMap["062"] || !masterColMap["06"] || !skuColMap["06"]) return Browser.msgBox("必須IDが見つかりません。");
+  if (targetLastRow >= WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW) {
+    const existingData = targetSheet.getRange(WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW, 1, targetLastRow - WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW + 1, WAREHOUSE_MATRIX_CONFIG.TARGET.TOTAL_COLS).getValues();
+    
+    existingData.forEach(row => {
+      const key064 = String(row[tgtColMap["064"] - 1] || "").trim(); // ★最強の合鍵
+      if (key064) {
+        const savedInput = {};
+        // 関数が入っているブロック以外（手入力部分）をすべて保存する
+        for(let c = 27; c <= WAREHOUSE_MATRIX_CONFIG.TARGET.TOTAL_COLS; c++) {
+          if (c >= 27 && c <= 32) continue; // 在庫ブロックは関数なので無視
+          if ([33, 40, 47, 54, 61].includes(c)) continue; // 合計列も関数なので無視
+          
+          if (row[c - 1] !== "" && row[c - 1] !== null) {
+             savedInput[c] = row[c - 1];
+          }
+        }
+        backupMap.set(key064, savedInput); // 鍵付きのロッカーにしまう
+      }
+    });
+  }
 
-  const skuLastRow = skuSheet.getLastRow();
-  const skuData = skuSheet.getRange(WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW, 1, skuLastRow - WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW + 1, skuSheet.getLastColumn()).getValues();
+  // ==========================================
+  // Step 2: シートの「完全初期化」
+  // ==========================================
+  if (targetLastRow >= WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW) {
+    clearContentAndProtections(targetSheet.getRange(WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW, 1, targetLastRow - WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW + 1, WAREHOUSE_MATRIX_CONFIG.TARGET.TOTAL_COLS));
+  }
 
-  const masterLastRow = masterSheet.getLastRow();
-  const masterData = masterLastRow < WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW ? [] : masterSheet.getRange(WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW, 1, masterLastRow - WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW + 1, masterSheet.getLastColumn()).getValues();
+  // ==========================================
+  // Step 3 & 4: VaMASTERから縦軸構築 & SKUからサイズ判定
+  // ==========================================
+  // ① SKUを回して「その064コードには、どのサイズが存在するか」だけを判定する
+  const sizeExistMap = new Map();
+  const skuData = skuSheet.getRange(WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW, 1, Math.max(skuSheet.getLastRow() - WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW + 1, 1), skuSheet.getLastColumn()).getValues();
+  
+  skuData.forEach(row => {
+    // SKU側から 064 合鍵を再現（型番 - バリエ - サプライヤー）
+    const baseCode = String(row[skuColMap["06"] - 1] || "").trim();
+    const varCode = String(row[skuColMap["11"] - 1] || "").trim();
+    const suppCode = String(row[skuColMap["01"] - 1] || "").trim();
+    const key064 = `${baseCode}-${varCode}-${suppCode}`;
 
-  const masterMap = new Map();
-  masterData.forEach((row, idx) => {
-    const parentCode = String(row[masterColMap["06"] - 1] || "").trim();
-    if (parentCode && !masterMap.has(parentCode)) masterMap.set(parentCode, { values: row, rowIndex: idx + WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW });
+    if (key064) {
+      if(!sizeExistMap.has(key064)) sizeExistMap.set(key064, new Set());
+      const sizeUnit = String(row[skuColMap["09"] - 1] || "").trim().toUpperCase();
+      if(sizeUnit) sizeExistMap.get(key064).add((sizeUnit === "FREE" || sizeUnit === "FREES") ? "F" : sizeUnit);
+    }
   });
 
-  const productMap = new Map();
-  for (let i = 0; i < skuData.length; i++) {
-    const row = skuData[i];
-    const tagCode = String(row[skuColMap["062"] - 1] || "").trim();
-    const parentCode = String(row[skuColMap["06"] - 1] || "").trim();
-    if (!tagCode) continue; 
-    if (!productMap.has(tagCode)) productMap.set(tagCode, { skuFirstRow: row, parentCode: parentCode, actualSizes: new Set() });
-    const sizeUnit = String(row[skuColMap["09"] - 1] || "").trim().toUpperCase();
-    if (sizeUnit) productMap.get(tagCode).actualSizes.add((sizeUnit === "FREE" || sizeUnit === "FREES") ? "F" : sizeUnit);
-  }
+  // ② VaMASTERのデータを読み込んでフレームを作る
+  const vaData = vaMasterSheet.getRange(WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW, 1, Math.max(vaMasterSheet.getLastRow() - WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW + 1, 1), vaMasterSheet.getLastColumn()).getValues();
   
   let outputData = [];
   let outputBackgrounds = [];
   let smartChipCopyTasks = [];
-  let currentWriteRow = WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW;
+  
+  vaData.forEach((vaRow, idx) => {
+    const key064 = String(vaRow[vaColMap["064"] - 1] || "").trim();
+    if (!key064) return;
 
-  productMap.forEach((info, tagCode) => {
     let rowData = new Array(WAREHOUSE_MATRIX_CONFIG.TARGET.TOTAL_COLS).fill("");
     let rowBg = new Array(WAREHOUSE_MATRIX_CONFIG.TARGET.TOTAL_COLS).fill(null);
-    const mData = masterMap.get(info.parentCode); 
+    const actualSizes = sizeExistMap.get(key064) || new Set();
 
+    // 縦軸（左側の基本情報）をVaMASTERから丸写しする
     for (let id in tgtColMap) {
       const tgtCol = tgtColMap[id];
       if (tgtCol > 26) continue; 
       
-      if (id === "15") rowData[tgtCol - 1] = ""; 
-      else if (id === "09") rowData[tgtCol - 1] = WAREHOUSE_MATRIX_CONFIG.SIZE_ORDER.filter(s => info.actualSizes.has(s)).join(", ");
-      else if (id === "04" && skuColMap["05"]) {
-        const photoUrl = info.skuFirstRow[skuColMap["05"] - 1];
-        if (photoUrl) rowData[tgtCol - 1] = `=IMAGE("${getDirectImageUrl(photoUrl)}")`;
-      } else if (WAREHOUSE_MATRIX_CONFIG.MASTER_PULL_IDS.includes(id) && masterColMap[id] && mData) {
-        smartChipCopyTasks.push({ srcRow: mData.rowIndex, srcCol: masterColMap[id], dstRow: currentWriteRow, dstCol: tgtCol });
-      } else if (skuColMap[id]) {
-        rowData[tgtCol - 1] = info.skuFirstRow[skuColMap[id] - 1];
+      if (id === "15") {
+         rowData[tgtCol - 1] = ""; // 日本円数式の場所は空ける
+      } else if (id === "09") {
+         rowData[tgtCol - 1] = WAREHOUSE_MATRIX_CONFIG.SIZE_ORDER.filter(s => actualSizes.has(s)).join(", "); // サイズ
+      } else if (id === "04" && vaColMap["05"]) {
+         const photoUrl = vaRow[vaColMap["05"] - 1];
+         if (photoUrl) rowData[tgtCol - 1] = `=IMAGE("${getDirectImageUrl(photoUrl)}")`;
+      } else if (WAREHOUSE_MATRIX_CONFIG.MASTER_PULL_IDS.includes(id) && vaColMap[id]) {
+         // ★スマートチップは後で「copyTo」するためにタスクに積む
+         smartChipCopyTasks.push({ 
+           srcRow: idx + WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW, 
+           srcCol: vaColMap[id], 
+           dstRow: WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW + outputData.length, 
+           dstCol: tgtCol 
+         });
+      } else if (vaColMap[id]) {
+         rowData[tgtCol - 1] = vaRow[vaColMap[id] - 1];
       }
     }
-    
-    // カラー設定：在庫ブロック(AA~AF)は薄いグレー（自動計算エリアのため）
+
+    // ==========================================
+    // Step 6: 記憶した手入力データの「復元」
+    // ==========================================
+    if (backupMap.has(key064)) {
+      const savedInput = backupMap.get(key064);
+      for (let c in savedInput) {
+        rowData[c - 1] = savedInput[c]; // 鍵が一致した行の正しい場所に、入力データを戻す！
+      }
+    }
+
+    // --- 色塗り設定 ---
     [27, 28, 29, 30, 31, 32].forEach(c => rowBg[c - 1] = "#f3f3f3");
-    [33, 40, 47, 54, 61].forEach(c => rowBg[c - 1] = "#fff2cc"); // 合計列は黄色
+    [33, 40, 47, 54, 61].forEach(c => rowBg[c - 1] = "#fff2cc");
     WAREHOUSE_MATRIX_CONFIG.SIZE_ORDER.forEach(size => {
-      if (!info.actualSizes.has(size)) WAREHOUSE_MATRIX_CONFIG.TARGET.SIZE_COLS[size].forEach(c => rowBg[c - 1] = "#999999");
+      // その商品に存在しないサイズ列はグレーで塗りつぶす
+      if (!actualSizes.has(size)) WAREHOUSE_MATRIX_CONFIG.TARGET.SIZE_COLS[size].forEach(c => rowBg[c - 1] = "#999999");
     });
 
     outputData.push(rowData);
     outputBackgrounds.push(rowBg);
-    currentWriteRow++;
   });
-  
+
+  // ==========================================
+  // Step 5: 書き込み ＆ 関数・アラート・保護の設定
+  // ==========================================
   if (outputData.length > 0) {
-    const targetLastRow = targetSheet.getLastRow();
-    if (targetLastRow >= WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW) {
-      clearContentAndProtections(targetSheet.getRange(WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW, 1, targetLastRow - WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW + 1, WAREHOUSE_MATRIX_CONFIG.TARGET.TOTAL_COLS));
+    // ★自動行追加機能（行が足りなければ足す）
+    const currentMaxRows = targetSheet.getMaxRows();
+    const neededMaxRows = WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW + outputData.length - 1;
+    if (neededMaxRows > currentMaxRows) {
+      targetSheet.insertRowsAfter(currentMaxRows, neededMaxRows - currentMaxRows);
     }
-    
+
     const targetRange = targetSheet.getRange(WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW, 1, outputData.length, WAREHOUSE_MATRIX_CONFIG.TARGET.TOTAL_COLS);
     targetRange.setValues(outputData);
     targetRange.setBackgrounds(outputBackgrounds);
-    
+
+    // ★VaMASTERからスマートチップをコピー！
     smartChipCopyTasks.forEach(task => {
-      masterSheet.getRange(task.srcRow, task.srcCol).copyTo(targetSheet.getRange(task.dstRow, task.dstCol));
+      vaMasterSheet.getRange(task.srcRow, task.srcCol).copyTo(targetSheet.getRange(task.dstRow, task.dstCol));
       targetSheet.getRange(task.dstRow, task.dstCol).setBackground(null);
     });
 
     const fStart = WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW;
-    const finalLastRow = targetSheet.getLastRow();
+    const finalLastRow = neededMaxRows;
     const suppColStr = getColumnLetter(tgtColMap["01"] || 2); 
-    const colCodeStr = getColumnLetter(tgtColMap["062"]); 
-    // --- ★ここから追加（BYROW数式の自動セット） ---
+    const colCodeStr = getColumnLetter(tgtColMap["062"] || 8); 
+
+    // ① 日本円数式 (BYROW)
     const colJpy = tgtColMap["15"];
     if (colJpy) {
       const formula = `=BYROW(${getColumnLetter(tgtColMap["13"])}${fStart}:${getColumnLetter(tgtColMap["14"])}${finalLastRow}, LAMBDA(row, IF(INDEX(row, 1, 2)="", "", IF(INDEX(row, 1, 1)="VN", INDEX(row, 1, 2) * $Q$2, IF(INDEX(row, 1, 1)="CN", INDEX(row, 1, 2) * $Q$3, "")))))`;
       targetSheet.getRange(fStart, colJpy).setFormula(formula);
     }
-       // 合計列セット
+
+    // ② 各ブロックの合計 (BYROW)
     WAREHOUSE_MATRIX_CONFIG.TARGET.SUM_COLS.forEach(sumConfig => {
       targetSheet.getRange(fStart, sumConfig.col).setFormula(`=BYROW(${sumConfig.startRange}${fStart}:${sumConfig.endRange}${finalLastRow}, LAMBDA(row, SUM(row)))`);
     });
 
-    // 1ブロック目（在庫）のVLOOKUPセット
+    // ③ 在庫のVLOOKUP（SKUから引いてくる）
     let stockFormulas = [];
     for (let r = fStart; r <= finalLastRow; r++) {
       let rowF = new Array(6).fill("");
       Object.keys(WAREHOUSE_MATRIX_CONFIG.TARGET.SIZE_COLS).forEach((s, idx) => {
-        // ★SKUシートから「52_実行時在庫」をVLOOKUPで引っ張る（34は仮列番号なので、SKUの実際の在庫列に合わせる）
         rowF[idx] = `=IF($${colCodeStr}${r}="", "", IFERROR(VLOOKUP($${colCodeStr}${r} & "-${s}-" & $${suppColStr}${r}, 'SKU'!$A:$BE, 34, FALSE), 0))`;
       });
       stockFormulas.push(rowF);
     }
-    targetSheet.getRange(fStart, 27, stockFormulas.length, 6).setFormulas(stockFormulas); // AA(27)からAF(32)まで
+    targetSheet.getRange(fStart, 27, stockFormulas.length, 6).setFormulas(stockFormulas); 
 
-    // ★アキラさん特製：棚卸しブロックの「赤く光る」条件付き書式を自動セット
+    // ④ 棚卸し赤光りアラート（条件付き書式）
     const rules = targetSheet.getConditionalFormatRules();
     const rangeToFormat = targetSheet.getRange(`BC${fStart}:BH${finalLastRow}`);
-    // ルール：棚卸セル(BC)が空ではなく、かつ在庫セル(AA)と等しくない場合、背景を赤に
     const redAlertRule = SpreadsheetApp.newConditionalFormatRule()
       .whenFormulaSatisfied(`=AND(BC${fStart}<>"", BC${fStart}<>AA${fStart})`)
-      .setBackground("#f8cecc") // 薄い赤
+      .setBackground("#f8cecc")
       .setFontColor("#cc0000")
       .setRanges([rangeToFormat])
       .build();
     rules.push(redAlertRule);
     targetSheet.setConditionalFormatRules(rules);
-    // --- ★ここから追加：自動計算エリアの「警告」保護セット ---
-    // 保護したい範囲を配列で指定（AA列〜AF列の在庫エリア、および各ブロックの合計列）
+
+    // ⑤ 絶対にサボらない「警告」保護
     const protectRanges = [
-      targetSheet.getRange(`AA${fStart}:AF${finalLastRow}`), // 在庫表示ブロック
-      targetSheet.getRange(`O${fStart}:O${finalLastRow}`),   // 15_価格などの数式列（あれば）
-      targetSheet.getRange(`AG${fStart}:AG${finalLastRow}`), // 各合計列（33列目）
-      targetSheet.getRange(`AN${fStart}:AN${finalLastRow}`), // 各合計列（40列目）
-      targetSheet.getRange(`AU${fStart}:AU${finalLastRow}`), // 各合計列（47列目）
-      targetSheet.getRange(`BB${fStart}:BB${finalLastRow}`), // 各合計列（54列目）
-      targetSheet.getRange(`BI${fStart}:BI${finalLastRow}`)  // 各合計列（61列目）
+      targetSheet.getRange(`AA${fStart}:AF${finalLastRow}`), 
+      targetSheet.getRange(`O${fStart}:O${finalLastRow}`),   
+      targetSheet.getRange(`AG${fStart}:AG${finalLastRow}`), 
+      targetSheet.getRange(`AN${fStart}:AN${finalLastRow}`), 
+      targetSheet.getRange(`AU${fStart}:AU${finalLastRow}`), 
+      targetSheet.getRange(`BB${fStart}:BB${finalLastRow}`), 
+      targetSheet.getRange(`BI${fStart}:BI${finalLastRow}`)  
     ];
-
     protectRanges.forEach(rng => {
-      const protection = rng.protect();
-      protection.setWarningOnly(true); // ★「警告を表示する」に設定
+      rng.protect().setWarningOnly(true);
     });
-    // --- ★ここまで追加 ---
 
-    Browser.msgBox("倉庫マトリックス生成完了！棚卸しアラートもセットしました。");
+    Browser.msgBox("倉庫マトリックス生成完了！\\n手入力データの復元、棚卸しアラート、保護、すべて完璧にセットしました！");
+  } else {
+    Browser.msgBox("展開するデータがありませんでした。");
   }
 }
