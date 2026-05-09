@@ -128,23 +128,38 @@ function generateWarehouseMatrix() {
   // ==========================================
   // Step 3 & 4: VaMASTERから縦軸構築 & SKUからサイズ判定
   // ==========================================
-  // ① SKUを回して「その064コードには、どのサイズが存在するか」だけを判定する
-  const sizeExistMap = new Map();
-  const skuData = skuSheet.getRange(WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW, 1, Math.max(skuSheet.getLastRow() - WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW + 1, 1), skuSheet.getLastColumn()).getValues();
-  
-  skuData.forEach(row => {
-    // SKU側から 064 合鍵を再現（型番 - バリエ - サプライヤー）
-    const baseCode = String(row[skuColMap["06"] - 1] || "").trim();
-    const varCode = String(row[skuColMap["11"] - 1] || "").trim();
-    const suppCode = String(row[skuColMap["01"] - 1] || "").trim();
-    const key064 = `${baseCode}-${varCode}-${suppCode}`;
+ // ① VaMASTERを回して「その064コードには、どのサイズが存在するか」を判定する
+const sizeExistMap = new Map();
 
-    if (key064) {
-      if(!sizeExistMap.has(key064)) sizeExistMap.set(key064, new Set());
-      const sizeUnit = String(row[skuColMap["09"] - 1] || "").trim().toUpperCase();
-      if(sizeUnit) sizeExistMap.get(key064).add((sizeUnit === "FREE" || sizeUnit === "FREES") ? "F" : sizeUnit);
-    }
-  });
+const vaSizeData = vaMasterSheet.getRange(
+  WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW,
+  1,
+  Math.max(vaMasterSheet.getLastRow() - WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW + 1, 1),
+  vaMasterSheet.getLastColumn()
+).getValues();
+
+vaSizeData.forEach(row => {
+  const key064 = String(row[vaColMap["064"] - 1] || "").trim();
+  if (!key064) return;
+
+  const rawSizeText = String(row[vaColMap["09"] - 1] || "").trim();
+
+  const sizeSet = new Set();
+
+  rawSizeText
+    .split(/[,、\n]/)
+    .map(size => String(size).trim().toUpperCase())
+    .filter(Boolean)
+    .forEach(size => {
+      if (size === "FREE" || size === "FREES" || size === "FREE SIZE" || size === "フリー") {
+        sizeSet.add("F");
+      } else {
+        sizeSet.add(size);
+      }
+    });
+
+  sizeExistMap.set(key064, sizeSet);
+});
 
   // ② VaMASTERのデータを読み込んでフレームを作る
   const vaData = vaMasterSheet.getRange(WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW, 1, Math.max(vaMasterSheet.getLastRow() - WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW + 1, 1), vaMasterSheet.getLastColumn()).getValues();
