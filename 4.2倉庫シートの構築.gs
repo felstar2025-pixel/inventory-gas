@@ -143,8 +143,12 @@ vaSizeData.forEach(row => {
   if (!key064) return;
 
   const rawSizeText = String(row[vaColMap["09"] - 1] || "").trim();
+  if (!sizeExistMap.has(key064)) {
+  sizeExistMap.set(key064, new Set());
+}
 
-  const sizeSet = new Set();
+const sizeSet = sizeExistMap.get(key064);
+
 
   rawSizeText
     .split(/[,、\n]/)
