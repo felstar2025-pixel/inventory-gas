@@ -319,6 +319,7 @@ const sizeSet = sizeExistMap.get(key064);
       targetSheet.getRange(`BB${fStart}:BB${finalLastRow}`), 
       targetSheet.getRange(`BI${fStart}:BI${finalLastRow}`)  
     ];
+/*
               // 存在しないサイズのグレーセルにも警告保護を追加
       outputData.forEach((row, i) => {
         const sheetRow = fStart + i;
@@ -333,12 +334,19 @@ const sizeSet = sizeExistMap.get(key064);
     }
   });
 });
+
+*/
+
     protectRanges.forEach(rng => {
       rng.protect().setWarningOnly(true);
     });
 
-    Browser.msgBox("倉庫マトリックス生成完了！\\n手入力データの復元、棚卸しアラート、保護、すべて完璧にセットしました！");
-  } else {
-    Browser.msgBox("展開するデータがありませんでした。");
+    Browser.msgBox(
+      "倉庫マトリックス生成完了！\n" +
+      "構築行数：" + outputData.length + " 行\n" +
+      "最終行：" + finalLastRow + "\n\n" +
+      "手入力データの復元、棚卸しアラート、保護をセットしました。"
+    );
   }
+    
 }
