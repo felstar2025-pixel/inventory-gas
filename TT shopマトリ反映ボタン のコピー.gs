@@ -1,5 +1,5 @@
 /*******************************************************
- * 移動販売マトリックス反映ボタン V2
+ * TikTokshopマトリ反映ボタン V1
  *
  * 持出：
  * - 倉庫在庫 -
@@ -15,30 +15,30 @@
  * - 移動販売不良累計 +
  *******************************************************/
 
-function submitMobileSalesMatrixV2() {
+function submitTTshopMatrixV1() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  const SHEET_MOBILE = "移動販売";
+  const SHEET_MOBILE = "TTshop";
   const SHEET_SKU = "SKU";
   const SHEET_SKU_LOG = "SKUログ";
 
   const HEADER_ROW = 6;
   const DATA_START_ROW = 7;
 
-  const PROCESS_SOURCE = "MV";
+  const PROCESS_SOURCE = "TT";
 
   // SKUシート固定列
   const SKU_COL_CODE = 1;           // A列：061_SKUコード
 
   // 現在庫列：読むだけ。直接書き込まない
   const SKU_COL_WH_CURRENT = 34;    // 倉庫現在庫
-  const SKU_COL_MV_CURRENT = 42;    // 移動販売現在庫
+  const SKU_COL_MV_CURRENT = 38;    // TikTok現在庫
 
   // 累計列：ここに加算する
   const SKU_COL_WH_PAYOUT = 32;     // AF列：本部払い出し数
-  const SKU_COL_MV_RECEIVE = 39;    // AM列：移動販売受け入れ
-  const SKU_COL_MV_SALES = 40;      // AN列：移動販売実売数
-  const SKU_COL_MV_DEFECT = 41;     // AO列：移動販売その他出庫 
+  const SKU_COL_MV_RECEIVE = 35;    // TikTok受け入れ
+  const SKU_COL_MV_SALES = 36;      // TikTok実売
+  const SKU_COL_MV_DEFECT = 37;     // TikTokその他出庫 
 
   const SIZE_LIST = ["XS", "S", "M", "L", "XL", "F"];
 
@@ -164,7 +164,7 @@ function submitMobileSalesMatrixV2() {
           logRows.push(buildMobileMatrixLogRow_(logColMap, {
             processId, now, source: PROCESS_SOURCE,
             processType: "出庫",
-            adjustmentType: "移動販売持出_倉庫払い出し",
+            adjustmentType: "TikTok持出_倉庫払い出し",
             skuCode, code064, size, displayName,
             changeQty: -carryQty
           }));
@@ -172,7 +172,7 @@ function submitMobileSalesMatrixV2() {
           logRows.push(buildMobileMatrixLogRow_(logColMap, {
             processId, now, source: PROCESS_SOURCE,
             processType: "入庫",
-            adjustmentType: "移動販売持出_移動販売受け入れ",
+            adjustmentType: "TikTok持出_移動販売受け入れ",
             skuCode, code064, size, displayName,
             changeQty: carryQty
           }));
@@ -184,7 +184,7 @@ function submitMobileSalesMatrixV2() {
       // 販売：移動販売販売累計 +
       if (saleQty > 0) {
         if (skuInfo.mvCurrent < saleQty) {
-          errors.push(`移動販売在庫不足：${skuCode} / 現在 ${skuInfo.mvCurrent} / 販売 ${saleQty}`);
+          errors.push(`TikTok在庫不足：${skuCode} / 現在 ${skuInfo.mvCurrent} / 販売 ${saleQty}`);
         } else {
           skuInfo.mvSales += saleQty;
           skuInfo.changed = true;
@@ -192,7 +192,7 @@ function submitMobileSalesMatrixV2() {
           logRows.push(buildMobileMatrixLogRow_(logColMap, {
             processId, now, source: PROCESS_SOURCE,
             processType: "出庫",
-            adjustmentType: "移動販売販売",
+            adjustmentType: "TikTok実売",
             skuCode, code064, size, displayName,
             changeQty: -saleQty
           }));
@@ -204,7 +204,7 @@ function submitMobileSalesMatrixV2() {
       // 不良廃棄その他：移動販売不良累計 +
       if (defectQty > 0) {
         if (skuInfo.mvCurrent < defectQty) {
-          errors.push(`移動販売在庫不足：${skuCode} / 現在 ${skuInfo.mvCurrent} / 不良廃棄その他 ${defectQty}`);
+          errors.push(`TikTok在庫不足：${skuCode} / 現在 ${skuInfo.mvCurrent} / 不良廃棄その他 ${defectQty}`);
         } else {
           skuInfo.mvDefect += defectQty;
           skuInfo.changed = true;
@@ -212,7 +212,7 @@ function submitMobileSalesMatrixV2() {
           logRows.push(buildMobileMatrixLogRow_(logColMap, {
             processId, now, source: PROCESS_SOURCE,
             processType: "出庫",
-            adjustmentType: "移動販売不良廃棄その他",
+            adjustmentType: "TikTok不良廃棄その他",
             skuCode, code064, size, displayName,
             changeQty: -defectQty
           }));
@@ -261,7 +261,7 @@ function submitMobileSalesMatrixV2() {
   clearRanges.forEach(range => range.clearContent());
 
   Browser.msgBox(
-    "移動販売マトリックス反映完了！\n\n" +
+    "TTshopマトリックス反映完了！\n\n" +
     "処理番号：" + processId + "\n" +
     "ログ件数：" + logRows.length + "件"
   );
