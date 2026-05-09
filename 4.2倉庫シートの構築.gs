@@ -330,10 +330,10 @@ const sizeSet = sizeExistMap.get(key064);
         if (!actualSizes.has(size)) {
       INPUT_PROTECT_COLS[size].forEach(col => {
         protectRanges.push(targetSheet.getRange(sheetRow, col));
-      });
-    }
+        });
+      }
+    });
   });
-});
 
 */
 
@@ -343,8 +343,6 @@ const sizeSet = sizeExistMap.get(key064);
 
     Browser.msgBox(
       "倉庫マトリックス生成完了！\n" +
-      "構築行数：" + outputData.length + " 行\n" +
-      "最終行：" + finalLastRow + "\n\n" +
       "手入力データの復元、棚卸しアラート、保護をセットしました。"
     );
   }
