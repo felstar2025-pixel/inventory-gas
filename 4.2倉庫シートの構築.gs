@@ -250,8 +250,7 @@ const sizeSet = sizeExistMap.get(key064);
 
     const fStart = WAREHOUSE_MATRIX_CONFIG.DATA_START_ROW;
     const finalLastRow = neededMaxRows;
-    const suppColStr = getColumnLetter(tgtColMap["01"] || 2); 
-    const colCodeStr = getColumnLetter(tgtColMap["062"] || 8); 
+    const col064Str = getColumnLetter(tgtColMap["064"]); 
 
     // ① 日本円数式 (BYROW)
     const colJpy = tgtColMap["15"];
@@ -270,7 +269,7 @@ const sizeSet = sizeExistMap.get(key064);
     for (let r = fStart; r <= finalLastRow; r++) {
       let rowF = new Array(6).fill("");
       Object.keys(WAREHOUSE_MATRIX_CONFIG.TARGET.SIZE_COLS).forEach((s, idx) => {
-        rowF[idx] = `=IF($${colCodeStr}${r}="", "", IFERROR(VLOOKUP($${colCodeStr}${r} & "-${s}-" & $${suppColStr}${r}, 'SKU'!$A:$BE, 34, FALSE), 0))`;
+       rowF[idx] = `=IF($${col064Str}${r}="", "", IFERROR(VLOOKUP($${col064Str}${r} & "-${s}", 'SKU'!$A:$BE, 34, FALSE), 0))`;
       });
       stockFormulas.push(rowF);
     }
