@@ -269,7 +269,7 @@ const sizeSet = sizeExistMap.get(key064);
     for (let r = fStart; r <= finalLastRow; r++) {
       let rowF = new Array(6).fill("");
       Object.keys(WAREHOUSE_MATRIX_CONFIG.TARGET.SIZE_COLS).forEach((s, idx) => {
-       rowF[idx] = `=IF($${col064Str}${r}="", "", IFERROR(VLOOKUP($${col064Str}${r} & "-${s}", 'SKU'!$A:$BE, 34, FALSE), 0))`;
+       rowF[idx] = `=IF($${col064Str}${r}="", "", IFERROR(VLOOKUP($${col064Str}${r} & "-${s}", 'SKU'!$A:$BE, 34, FALSE), ""))`;
       });
       stockFormulas.push(rowF);
     }
