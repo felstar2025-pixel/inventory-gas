@@ -1,16 +1,21 @@
 /*******************************************************
- * 移動販売マトリックス反映ボタン V1
+ * 移動販売マトリックス反映ボタン V2
  *
- * 対象：
- * - 持出：倉庫在庫 - / 移動販売在庫 +
- * - 販売：移動販売在庫 -
- * - 不良廃棄その他：移動販売在庫 -
+ * 持出：
+ * - 倉庫在庫 -
+ * - 移動販売現在庫 +
+ * - 移動販売持出累計 +
  *
- * 対象外：
- * - 棚卸
+ * 販売：
+ * - 移動販売現在庫 -
+ * - 移動販売販売累計 +
+ *
+ * 不良廃棄その他：
+ * - 移動販売現在庫 -
+ * - 移動販売不良累計 +
  *******************************************************/
 
-function submitMobileSalesMatrixV1() {
+function submitMobileSalesMatrixV2() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   const SHEET_MOBILE = "移動販売";
@@ -23,9 +28,17 @@ function submitMobileSalesMatrixV1() {
   const PROCESS_SOURCE = "MV";
 
   // SKUシート固定列
-  const SKU_COL_CODE = 1;      // 061_SKUコードがA列想定
-  const SKU_COL_WH_STOCK = 34; // 倉庫在庫
-  const SKU_COL_MV_STOCK = 42; // 移動販売在庫 AP列
+  const SKU_COL_CODE = 1;           // A列：061_SKUコード
+
+  // 現在庫列：読むだけ。直接書き込まない
+  const SKU_COL_WH_CURRENT = 34;    // 倉庫現在庫
+  const SKU_COL_MV_CURRENT = 60;    // 移動販売現在庫
+
+  // 累計列：ここに加算する
+  const SKU_COL_WH_PAYOUT = 40;     // AN列：倉庫払い出し累計
+  const SKU_COL_MV_RECEIVE = 58;    // 移動販売受け入れ累計
+  const SKU_COL_MV_SALES = 59;      // 移動販売販売累計
+  const SKU_COL_MV_DEFECT = 70;     // 移動販売不良廃棄その他累計
 
   const SIZE_LIST = ["XS", "S", "M", "L", "XL", "F"];
 
@@ -45,16 +58,16 @@ function submitMobileSalesMatrixV1() {
     return;
   }
 
-  const result = Browser.msgBox(
+  const confirm = Browser.msgBox(
     "移動販売マトリックス反映",
     "持出・販売・不良廃棄その他をSKUへ反映します。\n棚卸は処理しません。\n\n実行しますか？",
     Browser.Buttons.YES_NO
   );
 
-  if (result !== "yes") return;
+  if (confirm !== "yes") return;
 
-  const mvColMap = getMvColMap_(mobileSheet, HEADER_ROW);
-  const logColMap = getMvColMap_(logSheet, HEADER_ROW);
+  const mvColMap = getMobileMatrixColMap_(mobileSheet, HEADER_ROW);
+  const logColMap = getMobileMatrixColMap_(logSheet, HEADER_ROW);
 
   if (!mvColMap["064"] || !mvColMap["17"]) {
     Browser.msgBox("移動販売シートに 064_ または 17_ が見つかりません。");
@@ -63,21 +76,22 @@ function submitMobileSalesMatrixV1() {
 
   const requiredLogIds = ["01", "02", "03", "04", "05", "061", "064", "09", "17", "10", "11", "12"];
   const missingLogIds = requiredLogIds.filter(id => !logColMap[id]);
+
   if (missingLogIds.length > 0) {
     Browser.msgBox("SKUログに必要な項目IDがありません：\n" + missingLogIds.join(", "));
     return;
   }
 
-  const lastMvRow = mobileSheet.getLastRow();
-  if (lastMvRow < DATA_START_ROW) {
+  const lastMobileRow = mobileSheet.getLastRow();
+  if (lastMobileRow < DATA_START_ROW) {
     Browser.msgBox("移動販売シートに処理対象データがありません。");
     return;
   }
 
-  const mvValues = mobileSheet.getRange(
+  const mobileValues = mobileSheet.getRange(
     DATA_START_ROW,
     1,
-    lastMvRow - DATA_START_ROW + 1,
+    lastMobileRow - DATA_START_ROW + 1,
     mobileSheet.getLastColumn()
   ).getValues();
 
@@ -97,19 +111,27 @@ function submitMobileSalesMatrixV1() {
 
     skuMap.set(skuCode, {
       rowNumber: DATA_START_ROW + i,
-      warehouseStock: Number(row[SKU_COL_WH_STOCK - 1] || 0),
-      mobileStock: Number(row[SKU_COL_MV_STOCK - 1] || 0)
+
+      whCurrent: Number(row[SKU_COL_WH_CURRENT - 1] || 0),
+      mvCurrent: Number(row[SKU_COL_MV_CURRENT - 1] || 0),
+
+      whPayout: Number(row[SKU_COL_WH_PAYOUT - 1] || 0),
+      mvReceive: Number(row[SKU_COL_MV_RECEIVE - 1] || 0),
+      mvSales: Number(row[SKU_COL_MV_SALES - 1] || 0),
+      mvDefect: Number(row[SKU_COL_MV_DEFECT - 1] || 0),
+
+      changed: false
     });
   });
 
-  const processId = createMvProcessId_(logSheet, logColMap["01"], PROCESS_SOURCE);
+  const processId = createMobileMatrixProcessId_(logSheet, logColMap["01"], PROCESS_SOURCE);
   const now = new Date();
 
   const logRows = [];
   const clearRanges = [];
   const errors = [];
 
-  mvValues.forEach((row, rowIndex) => {
+  mobileValues.forEach((row, rowIndex) => {
     const sheetRow = DATA_START_ROW + rowIndex;
 
     const code064 = String(row[mvColMap["064"] - 1] || "").trim();
@@ -121,31 +143,36 @@ function submitMobileSalesMatrixV1() {
       const skuCode = `${code064}-${size}`;
       const skuInfo = skuMap.get(skuCode);
 
-      // ① 持出：倉庫 - / 移動販売 +
-      const carryQty = mvToNumber_(row[INPUT_COLS.carryOut[size] - 1]);
-      if (carryQty > 0) {
-        if (!skuInfo) {
-          errors.push(`SKU未発見：${skuCode}`);
-        } else if (skuInfo.warehouseStock < carryQty) {
-          errors.push(`倉庫在庫不足：${skuCode} / 現在 ${skuInfo.warehouseStock} / 持出 ${carryQty}`);
-        } else {
-          skuInfo.warehouseStock -= carryQty;
-          skuInfo.mobileStock += carryQty;
+      const carryQty = toMobileMatrixNumber_(row[INPUT_COLS.carryOut[size] - 1]);
+      const saleQty = toMobileMatrixNumber_(row[INPUT_COLS.sale[size] - 1]);
+      const defectQty = toMobileMatrixNumber_(row[INPUT_COLS.defect[size] - 1]);
 
-          logRows.push(buildMvLogRow_(logColMap, {
-            processId, now,
-            source: PROCESS_SOURCE,
+      if ((carryQty > 0 || saleQty > 0 || defectQty > 0) && !skuInfo) {
+        errors.push(`SKU未発見：${skuCode}`);
+        return;
+      }
+
+      // 持出：倉庫払い出し累計 + / 移動販売受け入れ累計 +
+      if (carryQty > 0) {
+        if (skuInfo.whCurrent < carryQty) {
+          errors.push(`倉庫在庫不足：${skuCode} / 現在 ${skuInfo.whCurrent} / 持出 ${carryQty}`);
+        } else {
+          skuInfo.whPayout += carryQty;
+          skuInfo.mvReceive += carryQty;
+          skuInfo.changed = true;
+
+          logRows.push(buildMobileMatrixLogRow_(logColMap, {
+            processId, now, source: PROCESS_SOURCE,
             processType: "出庫",
-            adjustmentType: "移動販売持出_倉庫",
+            adjustmentType: "移動販売持出_倉庫払い出し",
             skuCode, code064, size, displayName,
             changeQty: -carryQty
           }));
 
-          logRows.push(buildMvLogRow_(logColMap, {
-            processId, now,
-            source: PROCESS_SOURCE,
+          logRows.push(buildMobileMatrixLogRow_(logColMap, {
+            processId, now, source: PROCESS_SOURCE,
             processType: "入庫",
-            adjustmentType: "移動販売持出_移動販売",
+            adjustmentType: "移動販売持出_移動販売受け入れ",
             skuCode, code064, size, displayName,
             changeQty: carryQty
           }));
@@ -154,19 +181,16 @@ function submitMobileSalesMatrixV1() {
         }
       }
 
-      // ② 販売：移動販売 -
-      const saleQty = mvToNumber_(row[INPUT_COLS.sale[size] - 1]);
+      // 販売：移動販売販売累計 +
       if (saleQty > 0) {
-        if (!skuInfo) {
-          errors.push(`SKU未発見：${skuCode}`);
-        } else if (skuInfo.mobileStock < saleQty) {
-          errors.push(`移動販売在庫不足：${skuCode} / 現在 ${skuInfo.mobileStock} / 販売 ${saleQty}`);
+        if (skuInfo.mvCurrent < saleQty) {
+          errors.push(`移動販売在庫不足：${skuCode} / 現在 ${skuInfo.mvCurrent} / 販売 ${saleQty}`);
         } else {
-          skuInfo.mobileStock -= saleQty;
+          skuInfo.mvSales += saleQty;
+          skuInfo.changed = true;
 
-          logRows.push(buildMvLogRow_(logColMap, {
-            processId, now,
-            source: PROCESS_SOURCE,
+          logRows.push(buildMobileMatrixLogRow_(logColMap, {
+            processId, now, source: PROCESS_SOURCE,
             processType: "出庫",
             adjustmentType: "移動販売販売",
             skuCode, code064, size, displayName,
@@ -177,19 +201,16 @@ function submitMobileSalesMatrixV1() {
         }
       }
 
-      // ③ 不良廃棄その他：移動販売 -
-      const defectQty = mvToNumber_(row[INPUT_COLS.defect[size] - 1]);
+      // 不良廃棄その他：移動販売不良累計 +
       if (defectQty > 0) {
-        if (!skuInfo) {
-          errors.push(`SKU未発見：${skuCode}`);
-        } else if (skuInfo.mobileStock < defectQty) {
-          errors.push(`移動販売在庫不足：${skuCode} / 現在 ${skuInfo.mobileStock} / 不良廃棄その他 ${defectQty}`);
+        if (skuInfo.mvCurrent < defectQty) {
+          errors.push(`移動販売在庫不足：${skuCode} / 現在 ${skuInfo.mvCurrent} / 不良廃棄その他 ${defectQty}`);
         } else {
-          skuInfo.mobileStock -= defectQty;
+          skuInfo.mvDefect += defectQty;
+          skuInfo.changed = true;
 
-          logRows.push(buildMvLogRow_(logColMap, {
-            processId, now,
-            source: PROCESS_SOURCE,
+          logRows.push(buildMobileMatrixLogRow_(logColMap, {
+            processId, now, source: PROCESS_SOURCE,
             processType: "出庫",
             adjustmentType: "移動販売不良廃棄その他",
             skuCode, code064, size, displayName,
@@ -216,14 +237,19 @@ function submitMobileSalesMatrixV1() {
     return;
   }
 
-  // SKU更新
+  // SKUシート更新：現在庫列には書かない。累計列だけ更新。
   skuMap.forEach(info => {
-    skuSheet.getRange(info.rowNumber, SKU_COL_WH_STOCK).setValue(info.warehouseStock);
-    skuSheet.getRange(info.rowNumber, SKU_COL_MV_STOCK).setValue(info.mobileStock);
+    if (!info.changed) return;
+
+    skuSheet.getRange(info.rowNumber, SKU_COL_WH_PAYOUT).setValue(info.whPayout);
+    skuSheet.getRange(info.rowNumber, SKU_COL_MV_RECEIVE).setValue(info.mvReceive);
+    skuSheet.getRange(info.rowNumber, SKU_COL_MV_SALES).setValue(info.mvSales);
+    skuSheet.getRange(info.rowNumber, SKU_COL_MV_DEFECT).setValue(info.mvDefect);
   });
 
   // SKUログ追記
-  const logStartRow = getMvNextDataRow_(logSheet, DATA_START_ROW);
+  const logStartRow = getMobileMatrixNextDataRow_(logSheet, DATA_START_ROW);
+
   logSheet.getRange(
     logStartRow,
     1,
@@ -232,7 +258,7 @@ function submitMobileSalesMatrixV1() {
   ).setValues(logRows);
 
   // 入力欄クリア
-  clearRanges.forEach(r => r.clearContent());
+  clearRanges.forEach(range => range.clearContent());
 
   Browser.msgBox(
     "移動販売マトリックス反映完了！\n\n" +
@@ -246,7 +272,7 @@ function submitMobileSalesMatrixV1() {
  * ヘルパー
  *******************************************************/
 
-function getMvColMap_(sheet, headerRow) {
+function getMobileMatrixColMap_(sheet, headerRow) {
   const headers = sheet.getRange(headerRow, 1, 1, sheet.getLastColumn()).getValues()[0];
   const map = {};
 
@@ -263,13 +289,13 @@ function getMvColMap_(sheet, headerRow) {
   return map;
 }
 
-function mvToNumber_(value) {
+function toMobileMatrixNumber_(value) {
   if (value === "" || value === null || value === undefined) return 0;
   const num = Number(value);
   return isNaN(num) ? 0 : num;
 }
 
-function createMvProcessId_(logSheet, processIdCol, prefix) {
+function createMobileMatrixProcessId_(logSheet, processIdCol, prefix) {
   const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd");
   const base = `${prefix}-${today}-`;
 
@@ -291,7 +317,7 @@ function createMvProcessId_(logSheet, processIdCol, prefix) {
   return `${base}${String(maxNo + 1).padStart(4, "0")}`;
 }
 
-function getMvNextDataRow_(sheet, dataStartRow) {
+function getMobileMatrixNextDataRow_(sheet, dataStartRow) {
   const lastRow = sheet.getLastRow();
   if (lastRow < dataStartRow) return dataStartRow;
 
@@ -306,7 +332,7 @@ function getMvNextDataRow_(sheet, dataStartRow) {
   return dataStartRow;
 }
 
-function buildMvLogRow_(logColMap, data) {
+function buildMobileMatrixLogRow_(logColMap, data) {
   const row = [];
 
   Object.values(logColMap).forEach(col => {
