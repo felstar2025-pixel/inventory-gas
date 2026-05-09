@@ -287,7 +287,16 @@ const sizeSet = sizeExistMap.get(key064);
     rules.push(redAlertRule);
     targetSheet.setConditionalFormatRules(rules);
 
-    // ⑤ 絶対にサボらない「警告」保護
+    const INPUT_PROTECT_COLS = {
+      XS: [34, 41, 48, 55],
+      S:  [35, 42, 49, 56],
+      M:  [36, 43, 50, 57],
+      L:  [37, 44, 51, 58],
+      XL: [38, 45, 52, 59],
+      F:  [39, 46, 53, 60]
+    };
+
+          // ⑤ 絶対にサボらない「警告」保護
     const protectRanges = [
       targetSheet.getRange(`AA${fStart}:AF${finalLastRow}`), 
 
@@ -318,7 +327,7 @@ const sizeSet = sizeExistMap.get(key064);
 
       WAREHOUSE_MATRIX_CONFIG.SIZE_ORDER.forEach(size => {
         if (!actualSizes.has(size)) {
-      WAREHOUSE_MATRIX_CONFIG.TARGET.SIZE_COLS[size].forEach(col => {
+      INPUT_PROTECT_COLS[size].forEach(col => {
         protectRanges.push(targetSheet.getRange(sheetRow, col));
       });
     }
