@@ -1,229 +1,539 @@
-/**
- * 移動販売マトリックス生成GAS
- * ★6ブロック構成 ＆ 棚卸アラート ＆ 最強保護システム搭載
- */
+/*******************************************************
+ * 移動販売マトリックス生成GAS V2
+ *
+ * ベース：
+ * - VaMASTER起点
+ * - 064_P+V+Sコード起点
+ * - サイズ存在判定はVaMASTERの09_
+ * - 在庫参照はSKUシート
+ *
+ * 表示：
+ * - 倉庫現在庫
+ * - 移動販売現在庫
+ *
+ * 入力：
+ * - 持出
+ * - 販売
+ * - 不良廃棄その他
+ * - 棚卸
+ *******************************************************/
 
 const MOBILE_MATRIX_CONFIG = {
-  SOURCE_SKU: "SKU",       
-  SOURCE_MASTER: "MASTER",  
-  TARGET_SHEET: "移動販売", // ★ターゲット
+  SOURCE_SKU: "SKU",
+  SOURCE_VAMASTER: "VaMASTER",
+  TARGET_SHEET: "移動販売",
+
   HEADER_ROW: 6,
-  DATA_START_ROW: 7,            
-  MASTER_PULL_IDS: ["20", "21", "22"], 
+  DATA_START_ROW: 7,
+
+  MASTER_PULL_IDS: ["20", "21", "22"],
+
+  // SKUシート側の在庫項目ID
+  SKU_STOCK_ID_WAREHOUSE: "50", // 倉庫現在庫
+  SKU_STOCK_ID_MOBILE: "51",    // 移動販売現在庫
 
   TARGET: {
-    TOTAL_COLS: 68, // BP列まで（6ブロック）
+    TOTAL_COLS: 68, // BP列まで
+
     SIZE_COLS: {
-      "XS": [27, 34, 41, 48, 55, 62], // 倉庫, 販売在庫, 取寄せ, 販売, 不良, 棚卸
-      "S":  [28, 35, 42, 49, 56, 63], 
-      "M":  [29, 36, 43, 50, 57, 64], 
-      "L":  [30, 37, 44, 51, 58, 65], 
-      "XL": [31, 38, 45, 52, 59, 66], 
-      "F":  [32, 39, 46, 53, 60, 67]  
+      XS: [27, 34, 41, 48, 55, 62],
+      S:  [28, 35, 42, 49, 56, 63],
+      M:  [29, 36, 43, 50, 57, 64],
+      L:  [30, 37, 44, 51, 58, 65],
+      XL: [31, 38, 45, 52, 59, 66],
+      F:  [32, 39, 46, 53, 60, 67]
     },
+
     SUM_COLS: [
-      { col: 33, startRange: "AA", endRange: "AF" }, // B1: 倉庫在庫 合計
-      { col: 40, startRange: "AH", endRange: "AM" }, // B2: 販売在庫 合計
-      { col: 47, startRange: "AO", endRange: "AT" }, // B3: 取寄せ 合計
-      { col: 54, startRange: "AV", endRange: "BA" }, // B4: 販売 合計
-      { col: 61, startRange: "BC", endRange: "BH" }, // B5: 不良 合計
-      { col: 68, startRange: "BJ", endRange: "BO" }  // B6: 棚卸 合計
+      { col: 33, startRange: "AA", endRange: "AF" }, // 倉庫現在庫合計
+      { col: 40, startRange: "AH", endRange: "AM" }, // 移動販売現在庫合計
+      { col: 47, startRange: "AO", endRange: "AT" }, // 持出合計
+      { col: 54, startRange: "AV", endRange: "BA" }, // 販売合計
+      { col: 61, startRange: "BC", endRange: "BH" }, // 不良廃棄その他合計
+      { col: 68, startRange: "BJ", endRange: "BO" }  // 棚卸合計
     ]
   },
+
   SIZE_ORDER: ["XS", "S", "M", "L", "XL", "F"]
 };
 
-function getDirectImageUrl(url) {
-  if (!url) return "";
-  const match = url.match(/(?:id=|d\/)([\w-]+)/);
-  if (match) return `https://drive.google.com/uc?export=download&id=${match[1]}`;
-  return url;
-}
-function getColumnLetter(column) {
-  let temp, letter = '';
-  while (column > 0) { temp = (column - 1) % 26; letter = String.fromCharCode(temp + 65) + letter; column = (column - temp - 1) / 26; }
-  return letter;
-}
-function clearContentAndProtections(range) {
-  range.clearContent();
-  range.setBackground(null);
-  const sheet = range.getSheet();
-  const protections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
-  for (let p of protections) { p.remove(); } // ★最強消しゴム
-  sheet.clearConditionalFormatRules(); 
-}
+
+/*******************************************************
+ * メイン関数
+ *******************************************************/
 
 function generateMobileSalesMatrix() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+
   const skuSheet = ss.getSheetByName(MOBILE_MATRIX_CONFIG.SOURCE_SKU);
-  const masterSheet = ss.getSheetByName(MOBILE_MATRIX_CONFIG.SOURCE_MASTER); 
+  const vaMasterSheet = ss.getSheetByName(MOBILE_MATRIX_CONFIG.SOURCE_VAMASTER);
   const targetSheet = ss.getSheetByName(MOBILE_MATRIX_CONFIG.TARGET_SHEET);
-  
-  if (!skuSheet || !masterSheet || !targetSheet) return Browser.msgBox("シートが見つかりません。");
 
-  const normalizeId = (h) => String(h).trim().replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/＿/g, "_");
-  const getColMap = (sheet) => {
-    const map = {};
-    sheet.getRange(MOBILE_MATRIX_CONFIG.HEADER_ROW, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0].forEach((h, idx) => {
-      const match = normalizeId(h).match(/^(\d{2,3})_/);
-      if (match) map[match[1]] = idx + 1;
+  if (!skuSheet || !vaMasterSheet || !targetSheet) {
+    Browser.msgBox("SKU / VaMASTER / 移動販売 のいずれかのシートが見つかりません。");
+    return;
+  }
+
+  const skuColMap = getMobileColMap_(skuSheet);
+  const vaColMap = getMobileColMap_(vaMasterSheet);
+  const tgtColMap = getMobileColMap_(targetSheet);
+
+  if (!tgtColMap["064"] || !vaColMap["064"]) {
+    Browser.msgBox("064_列が見つかりません。");
+    return;
+  }
+
+  if (!skuColMap["061"]) {
+    Browser.msgBox("SKUシートに061_SKUコード列が見つかりません。");
+    return;
+  }
+
+  if (!skuColMap[MOBILE_MATRIX_CONFIG.SKU_STOCK_ID_WAREHOUSE]) {
+    Browser.msgBox("SKUシートに50_倉庫現在庫列が見つかりません。");
+    return;
+  }
+
+  if (!skuColMap[MOBILE_MATRIX_CONFIG.SKU_STOCK_ID_MOBILE]) {
+    Browser.msgBox("SKUシートに51_移動販売現在庫列が見つかりません。");
+    return;
+  }
+
+  // ==========================================
+  // Step 1: 手入力データのバックアップ
+  // ==========================================
+
+  const backupMap = new Map();
+  const targetLastRow = targetSheet.getLastRow();
+
+  if (targetLastRow >= MOBILE_MATRIX_CONFIG.DATA_START_ROW) {
+    const existingData = targetSheet.getRange(
+      MOBILE_MATRIX_CONFIG.DATA_START_ROW,
+      1,
+      targetLastRow - MOBILE_MATRIX_CONFIG.DATA_START_ROW + 1,
+      MOBILE_MATRIX_CONFIG.TARGET.TOTAL_COLS
+    ).getValues();
+
+    existingData.forEach(row => {
+      const key064 = String(row[tgtColMap["064"] - 1] || "").trim();
+      if (!key064) return;
+
+      const savedInput = {};
+
+      for (let c = 27; c <= MOBILE_MATRIX_CONFIG.TARGET.TOTAL_COLS; c++) {
+        // 表示専用：倉庫現在庫 AA:AF
+        if (c >= 27 && c <= 32) continue;
+
+        // 表示専用：移動販売現在庫 AH:AM
+        if (c >= 34 && c <= 39) continue;
+
+        // 合計列
+        if ([33, 40, 47, 54, 61, 68].includes(c)) continue;
+
+        if (row[c - 1] !== "" && row[c - 1] !== null) {
+          savedInput[c] = row[c - 1];
+        }
+      }
+
+      backupMap.set(key064, savedInput);
     });
-    return map;
-  };
+  }
 
-  const skuColMap = getColMap(skuSheet);
-  const masterColMap = getColMap(masterSheet); 
-  const tgtColMap = getColMap(targetSheet);
-  
-  if (!tgtColMap["062"] || !masterColMap["06"] || !skuColMap["06"]) return Browser.msgBox("必須IDが見つかりません。");
+  // ==========================================
+  // Step 2: 初期化
+  // ==========================================
 
-  const skuLastRow = skuSheet.getLastRow();
-  const skuData = skuSheet.getRange(MOBILE_MATRIX_CONFIG.DATA_START_ROW, 1, skuLastRow - MOBILE_MATRIX_CONFIG.DATA_START_ROW + 1, skuSheet.getLastColumn()).getValues();
+  if (targetLastRow >= MOBILE_MATRIX_CONFIG.DATA_START_ROW) {
+    clearMobileContentAndProtections_(
+      targetSheet.getRange(
+        MOBILE_MATRIX_CONFIG.DATA_START_ROW,
+        1,
+        targetLastRow - MOBILE_MATRIX_CONFIG.DATA_START_ROW + 1,
+        MOBILE_MATRIX_CONFIG.TARGET.TOTAL_COLS
+      )
+    );
+  }
 
-  const masterLastRow = masterSheet.getLastRow();
-  const masterData = masterLastRow < MOBILE_MATRIX_CONFIG.DATA_START_ROW ? [] : masterSheet.getRange(MOBILE_MATRIX_CONFIG.DATA_START_ROW, 1, masterLastRow - MOBILE_MATRIX_CONFIG.DATA_START_ROW + 1, masterSheet.getLastColumn()).getValues();
+  // ==========================================
+  // Step 3: VaMASTERからサイズ存在判定
+  // ==========================================
 
-  const masterMap = new Map();
-  masterData.forEach((row, idx) => {
-    const parentCode = String(row[masterColMap["06"] - 1] || "").trim();
-    if (parentCode && !masterMap.has(parentCode)) masterMap.set(parentCode, { values: row, rowIndex: idx + MOBILE_MATRIX_CONFIG.DATA_START_ROW });
+  const sizeExistMap = new Map();
+
+  const vaSizeData = vaMasterSheet.getRange(
+    MOBILE_MATRIX_CONFIG.DATA_START_ROW,
+    1,
+    Math.max(vaMasterSheet.getLastRow() - MOBILE_MATRIX_CONFIG.DATA_START_ROW + 1, 1),
+    vaMasterSheet.getLastColumn()
+  ).getValues();
+
+  vaSizeData.forEach(row => {
+    const key064 = String(row[vaColMap["064"] - 1] || "").trim();
+    if (!key064) return;
+
+    const rawSizeText = String(row[vaColMap["09"] - 1] || "").trim();
+
+    if (!sizeExistMap.has(key064)) {
+      sizeExistMap.set(key064, new Set());
+    }
+
+    const sizeSet = sizeExistMap.get(key064);
+
+    rawSizeText
+      .split(/[,、\n]/)
+      .map(size => String(size).trim().toUpperCase())
+      .filter(Boolean)
+      .forEach(size => {
+        if (
+          size === "FREE" ||
+          size === "FREES" ||
+          size === "FREE SIZE" ||
+          size === "フリー"
+        ) {
+          sizeSet.add("F");
+        } else {
+          sizeSet.add(size);
+        }
+      });
   });
 
-  const productMap = new Map();
-  for (let i = 0; i < skuData.length; i++) {
-    const row = skuData[i];
-    const tagCode = String(row[skuColMap["062"] - 1] || "").trim();
-    const parentCode = String(row[skuColMap["06"] - 1] || "").trim();
-    if (!tagCode) continue; 
-    if (!productMap.has(tagCode)) productMap.set(tagCode, { skuFirstRow: row, parentCode: parentCode, actualSizes: new Set() });
-    const sizeUnit = String(row[skuColMap["09"] - 1] || "").trim().toUpperCase();
-    if (sizeUnit) productMap.get(tagCode).actualSizes.add((sizeUnit === "FREE" || sizeUnit === "FREES") ? "F" : sizeUnit);
-  }
-  
-  let outputData = [];
-  let outputBackgrounds = [];
-  let smartChipCopyTasks = [];
-  let currentWriteRow = MOBILE_MATRIX_CONFIG.DATA_START_ROW;
+  // ==========================================
+  // Step 4: VaMASTERから縦軸フレーム作成
+  // ==========================================
 
-  productMap.forEach((info, tagCode) => {
-    let rowData = new Array(MOBILE_MATRIX_CONFIG.TARGET.TOTAL_COLS).fill("");
-    let rowBg = new Array(MOBILE_MATRIX_CONFIG.TARGET.TOTAL_COLS).fill(null);
-    const mData = masterMap.get(info.parentCode); 
+  const vaData = vaMasterSheet.getRange(
+    MOBILE_MATRIX_CONFIG.DATA_START_ROW,
+    1,
+    Math.max(vaMasterSheet.getLastRow() - MOBILE_MATRIX_CONFIG.DATA_START_ROW + 1, 1),
+    vaMasterSheet.getLastColumn()
+  ).getValues();
 
+  const outputData = [];
+  const outputBackgrounds = [];
+  const smartChipCopyTasks = [];
+
+  vaData.forEach((vaRow, idx) => {
+    const key064 = String(vaRow[vaColMap["064"] - 1] || "").trim();
+    if (!key064) return;
+
+    const rowData = new Array(MOBILE_MATRIX_CONFIG.TARGET.TOTAL_COLS).fill("");
+    const rowBg = new Array(MOBILE_MATRIX_CONFIG.TARGET.TOTAL_COLS).fill(null);
+
+    const actualSizes = sizeExistMap.get(key064) || new Set();
+
+    // 左側A〜ZはVaMASTERから作る
     for (let id in tgtColMap) {
       const tgtCol = tgtColMap[id];
-      if (tgtCol > 26) continue; 
-      
-      if (id === "15") rowData[tgtCol - 1] = ""; 
-      else if (id === "09") rowData[tgtCol - 1] = MOBILE_MATRIX_CONFIG.SIZE_ORDER.filter(s => info.actualSizes.has(s)).join(", ");
-      else if (id === "04" && skuColMap["05"]) {
-        const photoUrl = info.skuFirstRow[skuColMap["05"] - 1];
-        if (photoUrl) rowData[tgtCol - 1] = `=IMAGE("${getDirectImageUrl(photoUrl)}")`;
-      } else if (MOBILE_MATRIX_CONFIG.MASTER_PULL_IDS.includes(id) && masterColMap[id] && mData) {
-        smartChipCopyTasks.push({ srcRow: mData.rowIndex, srcCol: masterColMap[id], dstRow: currentWriteRow, dstCol: tgtCol });
-      } else if (skuColMap[id]) {
-        rowData[tgtCol - 1] = info.skuFirstRow[skuColMap[id] - 1];
+
+      if (tgtCol > 26) continue;
+
+      if (id === "15") {
+        rowData[tgtCol - 1] = "";
+      } else if (id === "09") {
+        rowData[tgtCol - 1] = MOBILE_MATRIX_CONFIG.SIZE_ORDER
+          .filter(size => actualSizes.has(size))
+          .join(", ");
+      } else if (id === "04" && vaColMap["05"]) {
+        const photoUrl = vaRow[vaColMap["05"] - 1];
+        if (photoUrl) {
+          rowData[tgtCol - 1] = `=IMAGE("${getMobileDirectImageUrl_(photoUrl)}")`;
+        }
+      } else if (MOBILE_MATRIX_CONFIG.MASTER_PULL_IDS.includes(id) && vaColMap[id]) {
+        smartChipCopyTasks.push({
+          srcRow: idx + MOBILE_MATRIX_CONFIG.DATA_START_ROW,
+          srcCol: vaColMap[id],
+          dstRow: MOBILE_MATRIX_CONFIG.DATA_START_ROW + outputData.length,
+          dstCol: tgtCol
+        });
+      } else if (vaColMap[id]) {
+        rowData[tgtCol - 1] = vaRow[vaColMap[id] - 1];
       }
     }
-    
-    // カラー設定：B1(倉庫在庫)とB2(販売在庫)は自動表示なのでグレー
-    [27, 28, 29, 30, 31, 32].forEach(c => rowBg[c - 1] = "#f3f3f3");
-    [34, 35, 36, 37, 38, 39].forEach(c => rowBg[c - 1] = "#e8eaed");
-    [33, 40, 47, 54, 61, 68].forEach(c => rowBg[c - 1] = "#fff2cc"); // 合計列
+
+    // 手入力復元
+    if (backupMap.has(key064)) {
+      const savedInput = backupMap.get(key064);
+      for (let c in savedInput) {
+        rowData[c - 1] = savedInput[c];
+      }
+    }
+
+    // 色設定
+    [27, 28, 29, 30, 31, 32].forEach(c => rowBg[c - 1] = "#f3f3f3"); // 倉庫現在庫
+    [34, 35, 36, 37, 38, 39].forEach(c => rowBg[c - 1] = "#f3f3f3"); // 移動販売現在庫
+
+    [33, 40, 47, 54, 61, 68].forEach(c => rowBg[c - 1] = "#fff2cc"); // 合計
+
     MOBILE_MATRIX_CONFIG.SIZE_ORDER.forEach(size => {
-      if (!info.actualSizes.has(size)) MOBILE_MATRIX_CONFIG.TARGET.SIZE_COLS[size].forEach(c => rowBg[c - 1] = "#999999");
+      if (!actualSizes.has(size)) {
+        MOBILE_MATRIX_CONFIG.TARGET.SIZE_COLS[size].forEach(c => {
+          rowBg[c - 1] = "#999999";
+        });
+      }
     });
 
     outputData.push(rowData);
     outputBackgrounds.push(rowBg);
-    currentWriteRow++;
   });
-  
-  if (outputData.length > 0) {
-    const targetLastRow = targetSheet.getLastRow();
-    if (targetLastRow >= MOBILE_MATRIX_CONFIG.DATA_START_ROW) {
-      clearContentAndProtections(targetSheet.getRange(MOBILE_MATRIX_CONFIG.DATA_START_ROW, 1, targetLastRow - MOBILE_MATRIX_CONFIG.DATA_START_ROW + 1, MOBILE_MATRIX_CONFIG.TARGET.TOTAL_COLS));
-    }
-    
-    const targetRange = targetSheet.getRange(MOBILE_MATRIX_CONFIG.DATA_START_ROW, 1, outputData.length, MOBILE_MATRIX_CONFIG.TARGET.TOTAL_COLS);
-    targetRange.setValues(outputData);
-    targetRange.setBackgrounds(outputBackgrounds);
-    
-    smartChipCopyTasks.forEach(task => {
-      masterSheet.getRange(task.srcRow, task.srcCol).copyTo(targetSheet.getRange(task.dstRow, task.dstCol));
-      targetSheet.getRange(task.dstRow, task.dstCol).setBackground(null);
+
+  // ==========================================
+  // Step 5: 書き込み
+  // ==========================================
+
+  if (outputData.length === 0) {
+    Browser.msgBox("展開するデータがありませんでした。");
+    return;
+  }
+
+  const currentMaxRows = targetSheet.getMaxRows();
+  const neededMaxRows =
+    MOBILE_MATRIX_CONFIG.DATA_START_ROW + outputData.length - 1;
+
+  if (neededMaxRows > currentMaxRows) {
+    targetSheet.insertRowsAfter(
+      currentMaxRows,
+      neededMaxRows - currentMaxRows
+    );
+  }
+
+  const targetRange = targetSheet.getRange(
+    MOBILE_MATRIX_CONFIG.DATA_START_ROW,
+    1,
+    outputData.length,
+    MOBILE_MATRIX_CONFIG.TARGET.TOTAL_COLS
+  );
+
+  targetRange.setValues(outputData);
+  targetRange.setBackgrounds(outputBackgrounds);
+
+  // スマートチップコピー
+  smartChipCopyTasks.forEach(task => {
+    vaMasterSheet
+      .getRange(task.srcRow, task.srcCol)
+      .copyTo(targetSheet.getRange(task.dstRow, task.dstCol));
+
+    targetSheet
+      .getRange(task.dstRow, task.dstCol)
+      .setBackground(null);
+  });
+
+  const fStart = MOBILE_MATRIX_CONFIG.DATA_START_ROW;
+  const finalLastRow = neededMaxRows;
+  const col064Str = getMobileColumnLetter_(tgtColMap["064"]);
+
+  // ==========================================
+  // Step 6: 日本円数式
+  // ==========================================
+
+  const colJpy = tgtColMap["15"];
+
+  if (colJpy && tgtColMap["13"] && tgtColMap["14"]) {
+    const formula =
+      `=BYROW(${getMobileColumnLetter_(tgtColMap["13"])}${fStart}:` +
+      `${getMobileColumnLetter_(tgtColMap["14"])}${finalLastRow}, ` +
+      `LAMBDA(row, IF(INDEX(row, 1, 2)="", "", ` +
+      `IF(INDEX(row, 1, 1)="VN", INDEX(row, 1, 2) * $Q$2, ` +
+      `IF(INDEX(row, 1, 1)="CN", INDEX(row, 1, 2) * $Q$3, "")))))`;
+
+    targetSheet.getRange(fStart, colJpy).setFormula(formula);
+  }
+
+  // ==========================================
+  // Step 7: 合計数式
+  // ==========================================
+
+  MOBILE_MATRIX_CONFIG.TARGET.SUM_COLS.forEach(sumConfig => {
+    targetSheet
+      .getRange(fStart, sumConfig.col)
+      .setFormula(
+        `=BYROW(${sumConfig.startRange}${fStart}:` +
+        `${sumConfig.endRange}${finalLastRow}, LAMBDA(row, SUM(row)))`
+      );
+  });
+
+  // ==========================================
+  // Step 8: SKUから現在庫を引く
+  // ==========================================
+
+  const warehouseStockIndex = 34; // 倉庫現在庫
+  const mobileStockIndex = 42;    // 移動販売在庫 AP列
+
+  const warehouseStockFormulas = [];
+  const mobileStockFormulas = [];
+
+  for (let r = fStart; r <= finalLastRow; r++) {
+    const whRow = new Array(6).fill("");
+    const mvRow = new Array(6).fill("");
+
+    MOBILE_MATRIX_CONFIG.SIZE_ORDER.forEach((size, idx) => {
+      whRow[idx] =
+        `=IF($${col064Str}${r}="", "", ` +
+        `IFERROR(VLOOKUP($${col064Str}${r} & "-${size}", 'SKU'!$A:$BE, ${warehouseStockIndex}, FALSE), ""))`;
+
+      mvRow[idx] =
+        `=IF($${col064Str}${r}="", "", ` +
+        `IFERROR(VLOOKUP($${col064Str}${r} & "-${size}", 'SKU'!$A:$BE, ${mobileStockIndex}, FALSE), ""))`;
     });
 
-    const fStart = MOBILE_MATRIX_CONFIG.DATA_START_ROW;
-    const finalLastRow = targetSheet.getLastRow();
-    const suppColStr = getColumnLetter(tgtColMap["01"] || 2); 
-    const colCodeStr = getColumnLetter(tgtColMap["062"]); 
-    const colJpy = tgtColMap["15"];
-
-    try {
-      if (colJpy) {
-        const formula = `=BYROW(${getColumnLetter(tgtColMap["13"])}${fStart}:${getColumnLetter(tgtColMap["14"])}${finalLastRow}, LAMBDA(row, IF(INDEX(row, 1, 2)="", "", IF(INDEX(row, 1, 1)="VN", INDEX(row, 1, 2) * $Q$2, IF(INDEX(row, 1, 1)="CN", INDEX(row, 1, 2) * $Q$3, "")))))`;
-        targetSheet.getRange(fStart, colJpy).setFormula(formula);
-      }
-
-      MOBILE_MATRIX_CONFIG.TARGET.SUM_COLS.forEach(sumConfig => {
-        targetSheet.getRange(fStart, sumConfig.col).setFormula(`=BYROW(${sumConfig.startRange}${fStart}:${sumConfig.endRange}${finalLastRow}, LAMBDA(row, SUM(row)))`);
-      });
-
-      // 1ブロック目（倉庫在庫: 34_）と 2ブロック目（販売在庫: 60_）のVLOOKUPセット
-      let stockFormulas = [];
-      for (let r = fStart; r <= finalLastRow; r++) {
-        let rowF = new Array(13).fill(""); // AA(27)からAM(39)まで（合計列AG(33)を含む）
-        Object.keys(MOBILE_MATRIX_CONFIG.TARGET.SIZE_COLS).forEach((s, idx) => {
-          // B1: 倉庫在庫（SKUの左から34列目と仮定）
-          rowF[idx] = `=IF($${colCodeStr}${r}="", "", IFERROR(VLOOKUP($${colCodeStr}${r} & "-${s}-" & $${suppColStr}${r}, 'SKU'!$A:$BP, 34, FALSE), 0))`;
-          // B2: 販売在庫（SKUの60_の列：SKUシートの列配置に合わせてVLOOKUPの列番号「42」等は調整が必要です ※一旦ダミーで列ID検索できる関数を入れます）
-          // ※VLOOKUPだと列がズレるため、今回は販売在庫も確実に引っ張れるように INDEX & MATCH に似せた構成がベストですが、
-          // シンプルにSKUの「AP列」と指定いただいているので、AP列は「42列目」として設定します。
-          rowF[idx + 7] = `=IF($${colCodeStr}${r}="", "", IFERROR(VLOOKUP($${colCodeStr}${r} & "-${s}-" & $${suppColStr}${r}, 'SKU'!$A:$BP, 42, FALSE), 0))`; 
-        });
-        rowF[6] = `=BYROW(AA${r}:AF${r}, LAMBDA(row, SUM(row)))`; // 合計列AG
-        stockFormulas.push(rowF);
-      }
-      targetSheet.getRange(fStart, 27, stockFormulas.length, 13).setFormulas(stockFormulas); 
-
-      // 赤アラート（B6:棚卸 BJ列 と B2:販売在庫 AH列 の比較）
-      const rules = targetSheet.getConditionalFormatRules();
-      const rangeToFormat = targetSheet.getRange(`BJ${fStart}:BO${finalLastRow}`);
-      const redAlertRule = SpreadsheetApp.newConditionalFormatRule()
-        .whenFormulaSatisfied(`=AND(BJ${fStart}<>"", BJ${fStart}<>AH${fStart})`)
-        .setBackground("#f8cecc") 
-        .setFontColor("#cc0000")
-        .setRanges([rangeToFormat])
-        .build();
-      rules.push(redAlertRule);
-      targetSheet.setConditionalFormatRules(rules);
-    } catch (e) { Logger.log(e.message); }
-
-    // =================================================================
-    // --- ★絶対にサボらない「警告」保護セット ---
-    // =================================================================
-    try {
-      SpreadsheetApp.flush(); 
-      const protectA1Notations = [
-        `O${fStart}:O${finalLastRow}`,   // 15_価格列
-        `AA${fStart}:AM${finalLastRow}`, // B1(倉庫在庫) ＆ B2(販売在庫) の表示エリア全て
-        `AG${fStart}:AG${finalLastRow}`, // 合計
-        `AN${fStart}:AN${finalLastRow}`, // 合計
-        `AU${fStart}:AU${finalLastRow}`, // 合計
-        `BB${fStart}:BB${finalLastRow}`, // 合計
-        `BI${fStart}:BI${finalLastRow}`, // 合計
-        `BP${fStart}:BP${finalLastRow}`  // 合計
-      ];
-      protectA1Notations.forEach(a1 => {
-        const rng = targetSheet.getRange(a1);
-        if (rng) rng.protect().setWarningOnly(true);
-      });
-      SpreadsheetApp.flush(); 
-    } catch (error) {
-      Browser.msgBox("【エラー報告】保護の設定で失敗しました：\\n" + error.message);
-    }
-
-    Browser.msgBox("移動販売マトリックス生成完了！6ブロックと保護をセットしました。");
+    warehouseStockFormulas.push(whRow);
+    mobileStockFormulas.push(mvRow);
   }
+
+  // 倉庫現在庫 AA:AF
+  targetSheet
+    .getRange(fStart, 27, warehouseStockFormulas.length, 6)
+    .setFormulas(warehouseStockFormulas);
+
+  // 移動販売現在庫 AH:AM
+  targetSheet
+    .getRange(fStart, 34, mobileStockFormulas.length, 6)
+    .setFormulas(mobileStockFormulas);
+
+  // ==========================================
+  // Step 9: 棚卸アラート
+  // ==========================================
+
+  const rules = targetSheet.getConditionalFormatRules();
+
+  const inventoryRange = targetSheet.getRange(`BJ${fStart}:BO${finalLastRow}`);
+
+  const inventoryAlertRule = SpreadsheetApp
+    .newConditionalFormatRule()
+    .whenFormulaSatisfied(`=AND(BJ${fStart}<>"", BJ${fStart}<>AH${fStart})`)
+    .setBackground("#f8cecc")
+    .setFontColor("#cc0000")
+    .setRanges([inventoryRange])
+    .build();
+
+  rules.push(inventoryAlertRule);
+  targetSheet.setConditionalFormatRules(rules);
+
+  // ==========================================
+  // Step 10: 警告保護
+  // ==========================================
+
+  const protectRanges = [
+    // 倉庫現在庫
+    targetSheet.getRange(`AA${fStart}:AF${finalLastRow}`),
+
+    // 移動販売現在庫
+    targetSheet.getRange(`AH${fStart}:AM${finalLastRow}`),
+
+    // 卸価格系：項目ID 14 / 15
+    targetSheet.getRange(
+      fStart,
+      tgtColMap["14"],
+      finalLastRow - fStart + 1,
+      1
+    ),
+
+    targetSheet.getRange(
+      fStart,
+      tgtColMap["15"],
+      finalLastRow - fStart + 1,
+      1
+    ),
+
+    // 合計列
+    targetSheet.getRange(`AG${fStart}:AG${finalLastRow}`),
+    targetSheet.getRange(`AN${fStart}:AN${finalLastRow}`),
+    targetSheet.getRange(`AU${fStart}:AU${finalLastRow}`),
+    targetSheet.getRange(`BB${fStart}:BB${finalLastRow}`),
+    targetSheet.getRange(`BI${fStart}:BI${finalLastRow}`),
+    targetSheet.getRange(`BP${fStart}:BP${finalLastRow}`)
+  ];
+
+  protectRanges.forEach(range => {
+    range.protect().setWarningOnly(true);
+  });
+
+  Browser.msgBox(
+    "移動販売マトリックス生成完了！\n" +
+    "構築行数：" + outputData.length + " 行\n" +
+    "最終行：" + finalLastRow + "\n\n" +
+    "倉庫現在庫・移動販売現在庫・入力欄・棚卸欄をセットしました。"
+  );
+}
+
+
+/*******************************************************
+ * ヘルパー
+ *******************************************************/
+
+function getMobileColMap_(sheet) {
+  const map = {};
+
+  const headers = sheet
+    .getRange(
+      MOBILE_MATRIX_CONFIG.HEADER_ROW,
+      1,
+      1,
+      Math.max(sheet.getLastColumn(), 1)
+    )
+    .getValues()[0];
+
+  headers.forEach((header, idx) => {
+    const text = normalizeMobileId_(header);
+    const match = text.match(/^(\d{2,4})_/);
+
+    if (match) {
+      map[match[1]] = idx + 1;
+    }
+  });
+
+  return map;
+}
+
+
+function normalizeMobileId_(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[０-９]/g, s =>
+      String.fromCharCode(s.charCodeAt(0) - 0xFEE0)
+    )
+    .replace(/＿/g, "_");
+}
+
+
+function getMobileDirectImageUrl_(url) {
+  if (!url) return "";
+
+  const match = String(url).match(/(?:id=|d\/)([\w-]+)/);
+
+  if (match) {
+    return `https://drive.google.com/uc?export=download&id=${match[1]}`;
+  }
+
+  return url;
+}
+
+
+function getMobileColumnLetter_(column) {
+  let temp;
+  let letter = "";
+
+  while (column > 0) {
+    temp = (column - 1) % 26;
+    letter = String.fromCharCode(temp + 65) + letter;
+    column = (column - temp - 1) / 26;
+  }
+
+  return letter;
+}
+
+
+function clearMobileContentAndProtections_(range) {
+  const sheet = range.getSheet();
+
+  range.clearContent();
+  range.setBackground(null);
+
+  const protections = sheet.getProtections(
+    SpreadsheetApp.ProtectionType.RANGE
+  );
+
+  protections.forEach(p => {
+    p.remove();
+  });
+
+  sheet.clearConditionalFormatRules();
 }
