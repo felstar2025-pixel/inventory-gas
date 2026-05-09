@@ -290,13 +290,40 @@ const sizeSet = sizeExistMap.get(key064);
     // ⑤ 絶対にサボらない「警告」保護
     const protectRanges = [
       targetSheet.getRange(`AA${fStart}:AF${finalLastRow}`), 
-      targetSheet.getRange(`O${fStart}:O${finalLastRow}`),   
+
+      targetSheet.getRange(
+        fStart,
+        tgtColMap["14"],
+        finalLastRow - fStart + 1,
+        1
+      ),
+
+      targetSheet.getRange(
+        fStart,
+        tgtColMap["15"],
+        finalLastRow - fStart + 1,
+        1
+      ),  
       targetSheet.getRange(`AG${fStart}:AG${finalLastRow}`), 
       targetSheet.getRange(`AN${fStart}:AN${finalLastRow}`), 
       targetSheet.getRange(`AU${fStart}:AU${finalLastRow}`), 
       targetSheet.getRange(`BB${fStart}:BB${finalLastRow}`), 
       targetSheet.getRange(`BI${fStart}:BI${finalLastRow}`)  
     ];
+              // 存在しないサイズのグレーセルにも警告保護を追加
+      outputData.forEach((row, i) => {
+        const sheetRow = fStart + i;
+        const key064 = String(row[tgtColMap["064"] - 1] || "").trim();
+        const actualSizes = sizeExistMap.get(key064) || new Set();
+
+      WAREHOUSE_MATRIX_CONFIG.SIZE_ORDER.forEach(size => {
+        if (!actualSizes.has(size)) {
+      WAREHOUSE_MATRIX_CONFIG.TARGET.SIZE_COLS[size].forEach(col => {
+        protectRanges.push(targetSheet.getRange(sheetRow, col));
+      });
+    }
+  });
+});
     protectRanges.forEach(rng => {
       rng.protect().setWarningOnly(true);
     });
