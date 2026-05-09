@@ -126,7 +126,7 @@ function generateWarehouseMatrix() {
   }
 
   // ==========================================
-  // Step 3 & 4: VaMASTERから縦軸構築 & SKUからサイズ判定
+  // Step 3 & 4: VaMASTERから縦軸構築 サイズ判定
   // ==========================================
  // ① VaMASTERを回して「その064コードには、どのサイズが存在するか」を判定する
 const sizeExistMap = new Map();
