@@ -79,7 +79,7 @@ function generateWarehouseMatrix() {
   const getColMap = (sheet) => {
     const map = {};
     sheet.getRange(WAREHOUSE_MATRIX_CONFIG.HEADER_ROW, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0].forEach((h, idx) => {
-      const match = normalizeId(h).match(/^(\d{2,3})_/);
+      const match = normalizeId(h).match(/^(\d{2,4})_/);
       if (match) map[match[1]] = idx + 1;
     });
     return map;
