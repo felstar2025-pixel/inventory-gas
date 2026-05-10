@@ -18,7 +18,7 @@
  * - 棚卸
  *******************************************************/
 
-const MOBILE_MATRIX_CONFIG = {
+const TTSHOP_MATRIX_CONFIG = {
   SOURCE_SKU: "SKU",
   SOURCE_VAMASTER: "VaMASTER",
   TARGET_SHEET: "TTshop",
@@ -30,7 +30,7 @@ const MOBILE_MATRIX_CONFIG = {
 
   // SKUシート側の在庫項目ID
   SKU_STOCK_ID_WAREHOUSE: "50", // 倉庫現在庫
-  SKU_STOCK_ID_MOBILE: "51",    // TTshop現在庫
+  SKU_STOCK_ID_MOBILE: "56",    // TTshop現在庫
 
   TARGET: {
     TOTAL_COLS: 68, // BP列まで
@@ -65,12 +65,12 @@ const MOBILE_MATRIX_CONFIG = {
 function generateTTshopMatrix() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  const skuSheet = ss.getSheetByName(MOBILE_MATRIX_CONFIG.SOURCE_SKU);
-  const vaMasterSheet = ss.getSheetByName(MOBILE_MATRIX_CONFIG.SOURCE_VAMASTER);
-  const targetSheet = ss.getSheetByName(MOBILE_MATRIX_CONFIG.TARGET_SHEET);
+  const skuSheet = ss.getSheetByName(TTSHOP_MATRIX_CONFIG.SOURCE_SKU);
+  const vaMasterSheet = ss.getSheetByName(TTSHOP_MATRIX_CONFIG.SOURCE_VAMASTER);
+  const targetSheet = ss.getSheetByName(TTSHOP_MATRIX_CONFIG.TARGET_SHEET);
 
   if (!skuSheet || !vaMasterSheet || !targetSheet) {
-    Browser.msgBox("SKU / VaMASTER / 移動販売 のいずれかのシートが見つかりません。");
+    Browser.msgBox("SKU / VaMASTER / TTshop のいずれかのシートが見つかりません。");
     return;
   }
 
@@ -88,12 +88,12 @@ function generateTTshopMatrix() {
     return;
   }
 
-  if (!skuColMap[MOBILE_MATRIX_CONFIG.SKU_STOCK_ID_WAREHOUSE]) {
+  if (!skuColMap[TTSHOP_MATRIX_CONFIG.SKU_STOCK_ID_WAREHOUSE]) {
     Browser.msgBox("SKUシートに50_倉庫現在庫列が見つかりません。");
     return;
   }
 
-  if (!skuColMap[MOBILE_MATRIX_CONFIG.SKU_STOCK_ID_MOBILE]) {
+  if (!skuColMap[TTSHOP_MATRIX_CONFIG.SKU_STOCK_ID_MOBILE]) {
     Browser.msgBox("SKUシートに51_移動販売現在庫列が見つかりません。");
     return;
   }
@@ -105,12 +105,12 @@ function generateTTshopMatrix() {
   const backupMap = new Map();
   const targetLastRow = targetSheet.getLastRow();
 
-  if (targetLastRow >= MOBILE_MATRIX_CONFIG.DATA_START_ROW) {
+  if (targetLastRow >= TTSHOP_MATRIX_CONFIG.DATA_START_ROW) {
     const existingData = targetSheet.getRange(
-      MOBILE_MATRIX_CONFIG.DATA_START_ROW,
+      TTSHOP_MATRIX_CONFIG.DATA_START_ROW,
       1,
-      targetLastRow - MOBILE_MATRIX_CONFIG.DATA_START_ROW + 1,
-      MOBILE_MATRIX_CONFIG.TARGET.TOTAL_COLS
+      targetLastRow - TTSHOP_MATRIX_CONFIG.DATA_START_ROW + 1,
+      TTSHOP_MATRIX_CONFIG.TARGET.TOTAL_COLS
     ).getValues();
 
     existingData.forEach(row => {
@@ -119,7 +119,7 @@ function generateTTshopMatrix() {
 
       const savedInput = {};
 
-      for (let c = 27; c <= MOBILE_MATRIX_CONFIG.TARGET.TOTAL_COLS; c++) {
+      for (let c = 27; c <= TTSHOP_MATRIX_CONFIG.TARGET.TOTAL_COLS; c++) {
         // 表示専用：倉庫現在庫 AA:AF
         if (c >= 27 && c <= 32) continue;
 
@@ -142,13 +142,13 @@ function generateTTshopMatrix() {
   // Step 2: 初期化
   // ==========================================
 
-  if (targetLastRow >= MOBILE_MATRIX_CONFIG.DATA_START_ROW) {
+  if (targetLastRow >= TTSHOP_MATRIX_CONFIG.DATA_START_ROW) {
     clearMobileContentAndProtections_(
       targetSheet.getRange(
-        MOBILE_MATRIX_CONFIG.DATA_START_ROW,
+        TTSHOP_MATRIX_CONFIG.DATA_START_ROW,
         1,
-        targetLastRow - MOBILE_MATRIX_CONFIG.DATA_START_ROW + 1,
-        MOBILE_MATRIX_CONFIG.TARGET.TOTAL_COLS
+        targetLastRow - TTSHOP_MATRIX_CONFIG.DATA_START_ROW + 1,
+        TTSHOP_MATRIX_CONFIG.TARGET.TOTAL_COLS
       )
     );
   }
@@ -160,9 +160,9 @@ function generateTTshopMatrix() {
   const sizeExistMap = new Map();
 
   const vaSizeData = vaMasterSheet.getRange(
-    MOBILE_MATRIX_CONFIG.DATA_START_ROW,
+    TTSHOP_MATRIX_CONFIG.DATA_START_ROW,
     1,
-    Math.max(vaMasterSheet.getLastRow() - MOBILE_MATRIX_CONFIG.DATA_START_ROW + 1, 1),
+    Math.max(vaMasterSheet.getLastRow() - TTSHOP_MATRIX_CONFIG.DATA_START_ROW + 1, 1),
     vaMasterSheet.getLastColumn()
   ).getValues();
 
@@ -201,9 +201,9 @@ function generateTTshopMatrix() {
   // ==========================================
 
   const vaData = vaMasterSheet.getRange(
-    MOBILE_MATRIX_CONFIG.DATA_START_ROW,
+    TTSHOP_MATRIX_CONFIG.DATA_START_ROW,
     1,
-    Math.max(vaMasterSheet.getLastRow() - MOBILE_MATRIX_CONFIG.DATA_START_ROW + 1, 1),
+    Math.max(vaMasterSheet.getLastRow() - TTSHOP_MATRIX_CONFIG.DATA_START_ROW + 1, 1),
     vaMasterSheet.getLastColumn()
   ).getValues();
 
@@ -215,8 +215,8 @@ function generateTTshopMatrix() {
     const key064 = String(vaRow[vaColMap["064"] - 1] || "").trim();
     if (!key064) return;
 
-    const rowData = new Array(MOBILE_MATRIX_CONFIG.TARGET.TOTAL_COLS).fill("");
-    const rowBg = new Array(MOBILE_MATRIX_CONFIG.TARGET.TOTAL_COLS).fill(null);
+    const rowData = new Array(TTSHOP_MATRIX_CONFIG.TARGET.TOTAL_COLS).fill("");
+    const rowBg = new Array(TTSHOP_MATRIX_CONFIG.TARGET.TOTAL_COLS).fill(null);
 
     const actualSizes = sizeExistMap.get(key064) || new Set();
 
@@ -229,7 +229,7 @@ function generateTTshopMatrix() {
       if (id === "15") {
         rowData[tgtCol - 1] = "";
       } else if (id === "09") {
-        rowData[tgtCol - 1] = MOBILE_MATRIX_CONFIG.SIZE_ORDER
+        rowData[tgtCol - 1] = TTSHOP_MATRIX_CONFIG.SIZE_ORDER
           .filter(size => actualSizes.has(size))
           .join(", ");
       } else if (id === "04" && vaColMap["05"]) {
@@ -237,11 +237,11 @@ function generateTTshopMatrix() {
         if (photoUrl) {
           rowData[tgtCol - 1] = `=IMAGE("${getMobileDirectImageUrl_(photoUrl)}")`;
         }
-      } else if (MOBILE_MATRIX_CONFIG.MASTER_PULL_IDS.includes(id) && vaColMap[id]) {
+      } else if (TTSHOP_MATRIX_CONFIG.MASTER_PULL_IDS.includes(id) && vaColMap[id]) {
         smartChipCopyTasks.push({
-          srcRow: idx + MOBILE_MATRIX_CONFIG.DATA_START_ROW,
+          srcRow: idx + TTSHOP_MATRIX_CONFIG.DATA_START_ROW,
           srcCol: vaColMap[id],
-          dstRow: MOBILE_MATRIX_CONFIG.DATA_START_ROW + outputData.length,
+          dstRow: TTSHOP_MATRIX_CONFIG.DATA_START_ROW + outputData.length,
           dstCol: tgtCol
         });
       } else if (vaColMap[id]) {
@@ -263,9 +263,9 @@ function generateTTshopMatrix() {
 
     [33, 40, 47, 54, 61, 68].forEach(c => rowBg[c - 1] = "#fff2cc"); // 合計
 
-    MOBILE_MATRIX_CONFIG.SIZE_ORDER.forEach(size => {
+    TTSHOP_MATRIX_CONFIG.SIZE_ORDER.forEach(size => {
       if (!actualSizes.has(size)) {
-        MOBILE_MATRIX_CONFIG.TARGET.SIZE_COLS[size].forEach(c => {
+        TTSHOP_MATRIX_CONFIG.TARGET.SIZE_COLS[size].forEach(c => {
           rowBg[c - 1] = "#999999";
         });
       }
@@ -286,7 +286,7 @@ function generateTTshopMatrix() {
 
   const currentMaxRows = targetSheet.getMaxRows();
   const neededMaxRows =
-    MOBILE_MATRIX_CONFIG.DATA_START_ROW + outputData.length - 1;
+    TTSHOP_MATRIX_CONFIG.DATA_START_ROW + outputData.length - 1;
 
   if (neededMaxRows > currentMaxRows) {
     targetSheet.insertRowsAfter(
@@ -296,10 +296,10 @@ function generateTTshopMatrix() {
   }
 
   const targetRange = targetSheet.getRange(
-    MOBILE_MATRIX_CONFIG.DATA_START_ROW,
+    TTSHOP_MATRIX_CONFIG.DATA_START_ROW,
     1,
     outputData.length,
-    MOBILE_MATRIX_CONFIG.TARGET.TOTAL_COLS
+    TTSHOP_MATRIX_CONFIG.TARGET.TOTAL_COLS
   );
 
   targetRange.setValues(outputData);
@@ -316,7 +316,7 @@ function generateTTshopMatrix() {
       .setBackground(null);
   });
 
-  const fStart = MOBILE_MATRIX_CONFIG.DATA_START_ROW;
+  const fStart = TTSHOP_MATRIX_CONFIG.DATA_START_ROW;
   const finalLastRow = neededMaxRows;
   const col064Str = getMobileColumnLetter_(tgtColMap["064"]);
 
@@ -341,7 +341,7 @@ function generateTTshopMatrix() {
   // Step 7: 合計数式
   // ==========================================
 
-  MOBILE_MATRIX_CONFIG.TARGET.SUM_COLS.forEach(sumConfig => {
+  TTSHOP_MATRIX_CONFIG.TARGET.SUM_COLS.forEach(sumConfig => {
     targetSheet
       .getRange(fStart, sumConfig.col)
       .setFormula(
@@ -358,13 +358,13 @@ function generateTTshopMatrix() {
   const ttStockIndex = 38;        // TTshop現在庫 AL列
 
   const warehouseStockFormulas = [];
-  const mobileStockFormulas = [];
+  const ttshopStockFormulas = [];
 
   for (let r = fStart; r <= finalLastRow; r++) {
     const whRow = new Array(6).fill("");
     const mvRow = new Array(6).fill("");
 
-    MOBILE_MATRIX_CONFIG.SIZE_ORDER.forEach((size, idx) => {
+    TTSHOP_MATRIX_CONFIG.SIZE_ORDER.forEach((size, idx) => {
       whRow[idx] =
         `=IF($${col064Str}${r}="", "", ` +
         `IFERROR(VLOOKUP($${col064Str}${r} & "-${size}", 'SKU'!$A:$BE, ${warehouseStockIndex}, FALSE), ""))`;
@@ -375,7 +375,7 @@ function generateTTshopMatrix() {
     });
 
     warehouseStockFormulas.push(whRow);
-    mobileStockFormulas.push(mvRow);
+    ttshopStockFormulas.push(mvRow);
   }
 
   // 倉庫現在庫 AA:AF
@@ -386,7 +386,7 @@ function generateTTshopMatrix() {
   // TTshop現在庫 AH:AM
   targetSheet
     .getRange(fStart, 34, mobileStockFormulas.length, 6)
-    .setFormulas(mobileStockFormulas);
+    .setFormulas(ttshopStockFormulas);
 
   // ==========================================
   // Step 9: 棚卸アラート
@@ -464,7 +464,7 @@ function getMobileColMap_(sheet) {
 
   const headers = sheet
     .getRange(
-      MOBILE_MATRIX_CONFIG.HEADER_ROW,
+      TTSHOP_MATRIX_CONFIG.HEADER_ROW,
       1,
       1,
       Math.max(sheet.getLastColumn(), 1)
