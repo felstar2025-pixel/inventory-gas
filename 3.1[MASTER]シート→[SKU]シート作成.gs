@@ -360,27 +360,7 @@ function importMasterDataToSKU_V4() {
     const colJpy = getColumnLetter(ACTUAL_SKU_GEN_CONFIG.SKU.COL_JPY_PRICE); // U列
     
     
-    // ▼▼▼ ここから新しく貼り付ける ▼▼▼
-    try {
-      // U列 (21列目): 15_卸価格(￥)
-      skuSheet.getRange(6, 21).setFormula('={"15_卸価格(￥)"; BYROW(S7:T, LAMBDA(row, IF(INDEX(row, 1, 2)="", "", IF(INDEX(row, 1, 1)="VN", INDEX(row, 1, 2) * $U$2, IF(INDEX(row, 1, 1)="CN", INDEX(row, 1, 2) * $U$3, "")))))}');
-
-      // AH列 (34列目): 52_倉庫現在庫
-      skuSheet.getRange(6, 34).setFormula('={"52_倉庫現在庫"; ARRAYFORMULA(IF(A7:A="", "", AE7:AE - AF7:AF - AG7:AG))}');
-
-      // AL列 (38列目): 56_[TT Shop] 現在庫数
-      skuSheet.getRange(6, 38).setFormula('={"56_[TT Shop] 現在庫数"; ARRAYFORMULA(IF(A7:A="", "", AI7:AI - AJ7:AJ - AK7:AK))}');
-
-      // AP列 (42列目): 60_[移動販売] 在庫数
-      skuSheet.getRange(6, 42).setFormula('={"60_[移動販売] 在庫数"; ARRAYFORMULA(IF(A7:A="", "", AM7:AM - AN7:AN - AO7:AO))}');
-
-      // AT列 (46列目): 73_[レンタル] 在庫数
-      skuSheet.getRange(6, 46).setFormula('={"73_[レンタル] 在庫数"; ARRAYFORMULA(IF(A7:A="", "", AQ7:AQ - AR7:AR - AS7:AS))}');
-
-    } catch (e) {
-      Browser.msgBox("⚠️数式セット時にエラーが起きました。\n詳細: " + e.message);
-    }
-    // ▲▲▲ ここまで ▲▲▲
+    
         
     Browser.msgBox(`完了！\n全データを展開しました！`);
   } else {
