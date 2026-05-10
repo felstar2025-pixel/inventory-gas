@@ -1,28 +1,20 @@
 /*******************************************************
- * レンタルマトリックス生成GAS V1
- *
- * ベース：
- * - TTshopマトリックス構築
+ * sampleシート生成GAS V1
  *
  * 表示：
  * - 本部現在庫
- * - レンタル現在庫
+ * - sample在庫
  *
  * 入力：
- * - レンタル受け入れ
- * - 貸出累計
- * - その他出庫
+ * - sample受け入れ
+ * - sampleその他出庫
  * - 棚卸
- *
- * 重要：
- * - 貸出累計は在庫から引かない
- * - レンタル現在庫 = レンタル受け入れ - レンタルその他出庫
  *******************************************************/
 
-const RENTAL_MATRIX_CONFIG = {
+const SAMPLE_MATRIX_CONFIG = {
   SOURCE_SKU: "SKU",
   SOURCE_VAMASTER: "VaMASTER",
-  TARGET_SHEET: "レンタル",
+  TARGET_SHEET: "sample",
 
   HEADER_ROW: 6,
   DATA_START_ROW: 7,
@@ -30,24 +22,23 @@ const RENTAL_MATRIX_CONFIG = {
   MASTER_PULL_IDS: ["20", "21", "22"],
 
   TARGET: {
-    TOTAL_COLS: 68, // BP列まで
+    TOTAL_COLS: 61, // BI列まで
 
     SIZE_COLS: {
-      XS: [27, 34, 41, 48, 55, 62],
-      S:  [28, 35, 42, 49, 56, 63],
-      M:  [29, 36, 43, 50, 57, 64],
-      L:  [30, 37, 44, 51, 58, 65],
-      XL: [31, 38, 45, 52, 59, 66],
-      F:  [32, 39, 46, 53, 60, 67]
+      XS: [27, 34, 41, 48, 55],
+      S:  [28, 35, 42, 49, 56],
+      M:  [29, 36, 43, 50, 57],
+      L:  [30, 37, 44, 51, 58],
+      XL: [31, 38, 45, 52, 59],
+      F:  [32, 39, 46, 53, 60]
     },
 
     SUM_COLS: [
       { col: 33, startRange: "AA", endRange: "AF" }, // 本部現在庫合計
-      { col: 40, startRange: "AH", endRange: "AM" }, // レンタル現在庫合計
-      { col: 47, startRange: "AO", endRange: "AT" }, // レンタル受け入れ合計
-      { col: 54, startRange: "AV", endRange: "BA" }, // 貸出累計合計
-      { col: 61, startRange: "BC", endRange: "BH" }, // その他出庫合計
-      { col: 68, startRange: "BJ", endRange: "BO" }  // 棚卸合計
+      { col: 40, startRange: "AH", endRange: "AM" }, // sample在庫合計
+      { col: 47, startRange: "AO", endRange: "AT" }, // sample受け入れ合計
+      { col: 54, startRange: "AV", endRange: "BA" }, // sampleその他出庫合計
+      { col: 61, startRange: "BC", endRange: "BH" }  // 棚卸合計
     ]
   },
 
@@ -55,25 +46,29 @@ const RENTAL_MATRIX_CONFIG = {
 };
 
 
-/*******************************************************
- * メイン関数
- *******************************************************/
-
-function generateRentalMatrix() {
+function generateSampleMatrix() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  const skuSheet = ss.getSheetByName(RENTAL_MATRIX_CONFIG.SOURCE_SKU);
-  const vaMasterSheet = ss.getSheetByName(RENTAL_MATRIX_CONFIG.SOURCE_VAMASTER);
-  const targetSheet = ss.getSheetByName(RENTAL_MATRIX_CONFIG.TARGET_SHEET);
+  const confirm = Browser.msgBox(
+  "サンプルマトリックス構築",
+  "サンプルシートを再構築します。\n既存の入力欄は一時保存して復元します。\n\n実行しますか？",
+  Browser.Buttons.YES_NO
+);
+
+if (confirm !== "yes") return;
+
+  const skuSheet = ss.getSheetByName(SAMPLE_MATRIX_CONFIG.SOURCE_SKU);
+  const vaMasterSheet = ss.getSheetByName(SAMPLE_MATRIX_CONFIG.SOURCE_VAMASTER);
+  const targetSheet = ss.getSheetByName(SAMPLE_MATRIX_CONFIG.TARGET_SHEET);
 
   if (!skuSheet || !vaMasterSheet || !targetSheet) {
-    Browser.msgBox("SKU / VaMASTER / レンタル のいずれかのシートが見つかりません。");
+    Browser.msgBox("SKU / VaMASTER / sample のいずれかのシートが見つかりません。");
     return;
   }
 
-  const skuColMap = getRentalColMap_(skuSheet);
-  const vaColMap = getRentalColMap_(vaMasterSheet);
-  const tgtColMap = getRentalColMap_(targetSheet);
+  const skuColMap = getSampleColMap_(skuSheet);
+  const vaColMap = getSampleColMap_(vaMasterSheet);
+  const tgtColMap = getSampleColMap_(targetSheet);
 
   if (!tgtColMap["064"] || !vaColMap["064"]) {
     Browser.msgBox("064_列が見つかりません。");
@@ -85,19 +80,16 @@ function generateRentalMatrix() {
     return;
   }
 
-  // ==========================================
-  // Step 1: 手入力データのバックアップ
-  // ==========================================
-
+  // 既存入力バックアップ
   const backupMap = new Map();
   const targetLastRow = targetSheet.getLastRow();
 
-  if (targetLastRow >= RENTAL_MATRIX_CONFIG.DATA_START_ROW) {
+  if (targetLastRow >= SAMPLE_MATRIX_CONFIG.DATA_START_ROW) {
     const existingData = targetSheet.getRange(
-      RENTAL_MATRIX_CONFIG.DATA_START_ROW,
+      SAMPLE_MATRIX_CONFIG.DATA_START_ROW,
       1,
-      targetLastRow - RENTAL_MATRIX_CONFIG.DATA_START_ROW + 1,
-      RENTAL_MATRIX_CONFIG.TARGET.TOTAL_COLS
+      targetLastRow - SAMPLE_MATRIX_CONFIG.DATA_START_ROW + 1,
+      SAMPLE_MATRIX_CONFIG.TARGET.TOTAL_COLS
     ).getValues();
 
     existingData.forEach(row => {
@@ -106,15 +98,10 @@ function generateRentalMatrix() {
 
       const savedInput = {};
 
-      for (let c = 27; c <= RENTAL_MATRIX_CONFIG.TARGET.TOTAL_COLS; c++) {
-        // 表示専用：本部現在庫 AA:AF
-        if (c >= 27 && c <= 32) continue;
-
-        // 表示専用：レンタル現在庫 AH:AM
-        if (c >= 34 && c <= 39) continue;
-
-        // 合計列
-        if ([33, 40, 47, 54, 61, 68].includes(c)) continue;
+      for (let c = 27; c <= SAMPLE_MATRIX_CONFIG.TARGET.TOTAL_COLS; c++) {
+        if (c >= 27 && c <= 32) continue; // 本部現在庫
+        if (c >= 34 && c <= 39) continue; // sample在庫
+        if ([33, 40, 47, 54, 61].includes(c)) continue; // 合計列
 
         if (row[c - 1] !== "" && row[c - 1] !== null) {
           savedInput[c] = row[c - 1];
@@ -125,35 +112,29 @@ function generateRentalMatrix() {
     });
   }
 
-  // ==========================================
-  // Step 2: 初期化
-  // ==========================================
-
-  if (targetLastRow >= RENTAL_MATRIX_CONFIG.DATA_START_ROW) {
-    clearRentalContentAndProtections_(
+  // 初期化
+  if (targetLastRow >= SAMPLE_MATRIX_CONFIG.DATA_START_ROW) {
+    clearSampleContentAndProtections_(
       targetSheet.getRange(
-        RENTAL_MATRIX_CONFIG.DATA_START_ROW,
+        SAMPLE_MATRIX_CONFIG.DATA_START_ROW,
         1,
-        targetLastRow - RENTAL_MATRIX_CONFIG.DATA_START_ROW + 1,
-        RENTAL_MATRIX_CONFIG.TARGET.TOTAL_COLS
+        targetLastRow - SAMPLE_MATRIX_CONFIG.DATA_START_ROW + 1,
+        SAMPLE_MATRIX_CONFIG.TARGET.TOTAL_COLS
       )
     );
   }
 
-  // ==========================================
-  // Step 3: VaMASTERからサイズ存在判定
-  // ==========================================
-
+  // VaMASTERからサイズ判定
   const sizeExistMap = new Map();
 
-  const vaSizeData = vaMasterSheet.getRange(
-    RENTAL_MATRIX_CONFIG.DATA_START_ROW,
+  const vaDataAll = vaMasterSheet.getRange(
+    SAMPLE_MATRIX_CONFIG.DATA_START_ROW,
     1,
-    Math.max(vaMasterSheet.getLastRow() - RENTAL_MATRIX_CONFIG.DATA_START_ROW + 1, 1),
+    Math.max(vaMasterSheet.getLastRow() - SAMPLE_MATRIX_CONFIG.DATA_START_ROW + 1, 1),
     vaMasterSheet.getLastColumn()
   ).getValues();
 
-  vaSizeData.forEach(row => {
+  vaDataAll.forEach(row => {
     const key064 = String(row[vaColMap["064"] - 1] || "").trim();
     if (!key064) return;
 
@@ -183,31 +164,20 @@ function generateRentalMatrix() {
       });
   });
 
-  // ==========================================
-  // Step 4: VaMASTERから縦軸フレーム作成
-  // ==========================================
-
-  const vaData = vaMasterSheet.getRange(
-    RENTAL_MATRIX_CONFIG.DATA_START_ROW,
-    1,
-    Math.max(vaMasterSheet.getLastRow() - RENTAL_MATRIX_CONFIG.DATA_START_ROW + 1, 1),
-    vaMasterSheet.getLastColumn()
-  ).getValues();
-
   const outputData = [];
   const outputBackgrounds = [];
   const smartChipCopyTasks = [];
 
-  vaData.forEach((vaRow, idx) => {
+  vaDataAll.forEach((vaRow, idx) => {
     const key064 = String(vaRow[vaColMap["064"] - 1] || "").trim();
     if (!key064) return;
 
-    const rowData = new Array(RENTAL_MATRIX_CONFIG.TARGET.TOTAL_COLS).fill("");
-    const rowBg = new Array(RENTAL_MATRIX_CONFIG.TARGET.TOTAL_COLS).fill(null);
+    const rowData = new Array(SAMPLE_MATRIX_CONFIG.TARGET.TOTAL_COLS).fill("");
+    const rowBg = new Array(SAMPLE_MATRIX_CONFIG.TARGET.TOTAL_COLS).fill(null);
 
     const actualSizes = sizeExistMap.get(key064) || new Set();
 
-    // 左側A〜ZはVaMASTERから作る
+    // A〜ZはVaMASTERから作る
     for (let id in tgtColMap) {
       const tgtCol = tgtColMap[id];
 
@@ -216,19 +186,19 @@ function generateRentalMatrix() {
       if (id === "15") {
         rowData[tgtCol - 1] = "";
       } else if (id === "09") {
-        rowData[tgtCol - 1] = RENTAL_MATRIX_CONFIG.SIZE_ORDER
+        rowData[tgtCol - 1] = SAMPLE_MATRIX_CONFIG.SIZE_ORDER
           .filter(size => actualSizes.has(size))
           .join(", ");
       } else if (id === "04" && vaColMap["05"]) {
         const photoUrl = vaRow[vaColMap["05"] - 1];
         if (photoUrl) {
-          rowData[tgtCol - 1] = `=IMAGE("${getRentalDirectImageUrl_(photoUrl)}")`;
+          rowData[tgtCol - 1] = `=IMAGE("${getSampleDirectImageUrl_(photoUrl)}")`;
         }
-      } else if (RENTAL_MATRIX_CONFIG.MASTER_PULL_IDS.includes(id) && vaColMap[id]) {
+      } else if (SAMPLE_MATRIX_CONFIG.MASTER_PULL_IDS.includes(id) && vaColMap[id]) {
         smartChipCopyTasks.push({
-          srcRow: idx + RENTAL_MATRIX_CONFIG.DATA_START_ROW,
+          srcRow: idx + SAMPLE_MATRIX_CONFIG.DATA_START_ROW,
           srcCol: vaColMap[id],
-          dstRow: RENTAL_MATRIX_CONFIG.DATA_START_ROW + outputData.length,
+          dstRow: SAMPLE_MATRIX_CONFIG.DATA_START_ROW + outputData.length,
           dstCol: tgtCol
         });
       } else if (vaColMap[id]) {
@@ -246,13 +216,13 @@ function generateRentalMatrix() {
 
     // 色設定
     [27, 28, 29, 30, 31, 32].forEach(c => rowBg[c - 1] = "#f3f3f3"); // 本部現在庫
-    [34, 35, 36, 37, 38, 39].forEach(c => rowBg[c - 1] = "#f3f3f3"); // レンタル現在庫
+    [34, 35, 36, 37, 38, 39].forEach(c => rowBg[c - 1] = "#f3f3f3"); // sample在庫
 
-    [33, 40, 47, 54, 61, 68].forEach(c => rowBg[c - 1] = "#fff2cc"); // 合計
+    [33, 40, 47, 54, 61].forEach(c => rowBg[c - 1] = "#fff2cc"); // 合計
 
-    RENTAL_MATRIX_CONFIG.SIZE_ORDER.forEach(size => {
+    SAMPLE_MATRIX_CONFIG.SIZE_ORDER.forEach(size => {
       if (!actualSizes.has(size)) {
-        RENTAL_MATRIX_CONFIG.TARGET.SIZE_COLS[size].forEach(c => {
+        SAMPLE_MATRIX_CONFIG.TARGET.SIZE_COLS[size].forEach(c => {
           rowBg[c - 1] = "#999999";
         });
       }
@@ -262,31 +232,23 @@ function generateRentalMatrix() {
     outputBackgrounds.push(rowBg);
   });
 
-  // ==========================================
-  // Step 5: 書き込み
-  // ==========================================
-
   if (outputData.length === 0) {
     Browser.msgBox("展開するデータがありませんでした。");
     return;
   }
 
   const currentMaxRows = targetSheet.getMaxRows();
-  const neededMaxRows =
-    RENTAL_MATRIX_CONFIG.DATA_START_ROW + outputData.length - 1;
+  const neededMaxRows = SAMPLE_MATRIX_CONFIG.DATA_START_ROW + outputData.length - 1;
 
   if (neededMaxRows > currentMaxRows) {
-    targetSheet.insertRowsAfter(
-      currentMaxRows,
-      neededMaxRows - currentMaxRows
-    );
+    targetSheet.insertRowsAfter(currentMaxRows, neededMaxRows - currentMaxRows);
   }
 
   const targetRange = targetSheet.getRange(
-    RENTAL_MATRIX_CONFIG.DATA_START_ROW,
+    SAMPLE_MATRIX_CONFIG.DATA_START_ROW,
     1,
     outputData.length,
-    RENTAL_MATRIX_CONFIG.TARGET.TOTAL_COLS
+    SAMPLE_MATRIX_CONFIG.TARGET.TOTAL_COLS
   );
 
   targetRange.setValues(outputData);
@@ -303,20 +265,17 @@ function generateRentalMatrix() {
       .setBackground(null);
   });
 
-  const fStart = RENTAL_MATRIX_CONFIG.DATA_START_ROW;
+  const fStart = SAMPLE_MATRIX_CONFIG.DATA_START_ROW;
   const finalLastRow = neededMaxRows;
-  const col064Str = getRentalColumnLetter_(tgtColMap["064"]);
+  const col064Str = getSampleColumnLetter_(tgtColMap["064"]);
 
-  // ==========================================
-  // Step 6: 日本円数式
-  // ==========================================
-
+  // 日本円数式
   const colJpy = tgtColMap["15"];
 
   if (colJpy && tgtColMap["13"] && tgtColMap["14"]) {
     const formula =
-      `=BYROW(${getRentalColumnLetter_(tgtColMap["13"])}${fStart}:` +
-      `${getRentalColumnLetter_(tgtColMap["14"])}${finalLastRow}, ` +
+      `=BYROW(${getSampleColumnLetter_(tgtColMap["13"])}${fStart}:` +
+      `${getSampleColumnLetter_(tgtColMap["14"])}${finalLastRow}, ` +
       `LAMBDA(row, IF(INDEX(row, 1, 2)="", "", ` +
       `IF(INDEX(row, 1, 1)="VN", INDEX(row, 1, 2) * $Q$2, ` +
       `IF(INDEX(row, 1, 1)="CN", INDEX(row, 1, 2) * $Q$3, "")))))`;
@@ -324,11 +283,8 @@ function generateRentalMatrix() {
     targetSheet.getRange(fStart, colJpy).setFormula(formula);
   }
 
-  // ==========================================
-  // Step 7: 合計数式
-  // ==========================================
-
-  RENTAL_MATRIX_CONFIG.TARGET.SUM_COLS.forEach(sumConfig => {
+  // 合計数式
+  SAMPLE_MATRIX_CONFIG.TARGET.SUM_COLS.forEach(sumConfig => {
     targetSheet
       .getRange(fStart, sumConfig.col)
       .setFormula(
@@ -337,32 +293,29 @@ function generateRentalMatrix() {
       );
   });
 
-  // ==========================================
-  // Step 8: SKUから現在庫を引く
-  // ==========================================
-
+  // SKUから現在庫を引く
   const warehouseStockIndex = 34; // 本部現在庫
-  const rentalStockIndex = 45;    // AS列：レンタル現在庫
+  const sampleStockIndex = 49;    // AW列：sample在庫 ※違う場合はここを変更
 
   const warehouseStockFormulas = [];
-  const rentalStockFormulas = [];
+  const sampleStockFormulas = [];
 
   for (let r = fStart; r <= finalLastRow; r++) {
     const whRow = new Array(6).fill("");
-    const rentalRow = new Array(6).fill("");
+    const sampleRow = new Array(6).fill("");
 
-    RENTAL_MATRIX_CONFIG.SIZE_ORDER.forEach((size, idx) => {
+    SAMPLE_MATRIX_CONFIG.SIZE_ORDER.forEach((size, idx) => {
       whRow[idx] =
         `=IF($${col064Str}${r}="", "", ` +
         `IFERROR(VLOOKUP($${col064Str}${r} & "-${size}", 'SKU'!$A:$BE, ${warehouseStockIndex}, FALSE), ""))`;
 
-      rentalRow[idx] =
+      sampleRow[idx] =
         `=IF($${col064Str}${r}="", "", ` +
-        `IFERROR(VLOOKUP($${col064Str}${r} & "-${size}", 'SKU'!$A:$BE, ${rentalStockIndex}, FALSE), ""))`;
+        `IFERROR(VLOOKUP($${col064Str}${r} & "-${size}", 'SKU'!$A:$BE, ${sampleStockIndex}, FALSE), ""))`;
     });
 
     warehouseStockFormulas.push(whRow);
-    rentalStockFormulas.push(rentalRow);
+    sampleStockFormulas.push(sampleRow);
   }
 
   // 本部現在庫 AA:AF
@@ -370,22 +323,19 @@ function generateRentalMatrix() {
     .getRange(fStart, 27, warehouseStockFormulas.length, 6)
     .setFormulas(warehouseStockFormulas);
 
-  // レンタル現在庫 AH:AM
+  // sample在庫 AH:AM
   targetSheet
-    .getRange(fStart, 34, rentalStockFormulas.length, 6)
-    .setFormulas(rentalStockFormulas);
+    .getRange(fStart, 34, sampleStockFormulas.length, 6)
+    .setFormulas(sampleStockFormulas);
 
-  // ==========================================
-  // Step 9: 棚卸アラート
-  // ==========================================
-
+  // 棚卸アラート
   const rules = targetSheet.getConditionalFormatRules();
 
-  const inventoryRange = targetSheet.getRange(`BJ${fStart}:BO${finalLastRow}`);
+  const inventoryRange = targetSheet.getRange(`BC${fStart}:BH${finalLastRow}`);
 
   const inventoryAlertRule = SpreadsheetApp
     .newConditionalFormatRule()
-    .whenFormulaSatisfied(`=AND(BJ${fStart}<>"", BJ${fStart}<>AH${fStart})`)
+    .whenFormulaSatisfied(`=AND(BC${fStart}<>"", BC${fStart}<>AH${fStart})`)
     .setBackground("#f8cecc")
     .setFontColor("#cc0000")
     .setRanges([inventoryRange])
@@ -394,18 +344,11 @@ function generateRentalMatrix() {
   rules.push(inventoryAlertRule);
   targetSheet.setConditionalFormatRules(rules);
 
-  // ==========================================
-  // Step 10: 警告保護
-  // ==========================================
-
+  // 警告保護
   const protectRanges = [
-    // 本部現在庫
     targetSheet.getRange(`AA${fStart}:AF${finalLastRow}`),
-
-    // レンタル現在庫
     targetSheet.getRange(`AH${fStart}:AM${finalLastRow}`),
 
-    // 卸価格系：項目ID 14 / 15
     targetSheet.getRange(
       fStart,
       tgtColMap["14"],
@@ -420,33 +363,30 @@ function generateRentalMatrix() {
       1
     ),
 
-    // 合計列
     targetSheet.getRange(`AG${fStart}:AG${finalLastRow}`),
     targetSheet.getRange(`AN${fStart}:AN${finalLastRow}`),
     targetSheet.getRange(`AU${fStart}:AU${finalLastRow}`),
     targetSheet.getRange(`BB${fStart}:BB${finalLastRow}`),
-    targetSheet.getRange(`BI${fStart}:BI${finalLastRow}`),
-    targetSheet.getRange(`BP${fStart}:BP${finalLastRow}`)
+    targetSheet.getRange(`BI${fStart}:BI${finalLastRow}`)
   ];
 
   protectRanges.forEach(range => {
     range.protect().setWarningOnly(true);
   });
 
- try {
-  SpreadsheetApp.getUi().alert(
-    "レンタルマトリックス生成完了！\n" +
-    "構築行数：" + outputData.length + " 行\n" +
-    "最終行：" + finalLastRow + "\n\n" +
-    "本部現在庫・レンタル現在庫・受け入れ・貸出累計・その他出庫・棚卸欄をセットしました。"
-  );
-} catch (e) {
-  SpreadsheetApp.getActiveSpreadsheet().toast(
-    "レンタルマトリックス生成完了！",
-    "完了",
-    10
-  );
-}
+  try {
+    SpreadsheetApp.getUi().alert(
+      "sampleマトリックス生成完了\n\n" +
+      "構築行数：" + outputData.length + " 行\n" +
+      "最終行：" + finalLastRow
+    );
+  } catch (e) {
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      "sampleマトリックス生成完了",
+      "完了",
+      10
+    );
+  }
 }
 
 
@@ -454,12 +394,12 @@ function generateRentalMatrix() {
  * ヘルパー
  *******************************************************/
 
-function getRentalColMap_(sheet) {
+function getSampleColMap_(sheet) {
   const map = {};
 
   const headers = sheet
     .getRange(
-      RENTAL_MATRIX_CONFIG.HEADER_ROW,
+      SAMPLE_MATRIX_CONFIG.HEADER_ROW,
       1,
       1,
       Math.max(sheet.getLastColumn(), 1)
@@ -467,7 +407,7 @@ function getRentalColMap_(sheet) {
     .getValues()[0];
 
   headers.forEach((header, idx) => {
-    const text = normalizeRentalId_(header);
+    const text = normalizeSampleId_(header);
     const match = text.match(/^(\d{2,4})_/);
 
     if (match) {
@@ -478,7 +418,7 @@ function getRentalColMap_(sheet) {
   return map;
 }
 
-function normalizeRentalId_(value) {
+function normalizeSampleId_(value) {
   return String(value || "")
     .trim()
     .replace(/[０-９]/g, s =>
@@ -487,7 +427,7 @@ function normalizeRentalId_(value) {
     .replace(/＿/g, "_");
 }
 
-function getRentalDirectImageUrl_(url) {
+function getSampleDirectImageUrl_(url) {
   if (!url) return "";
 
   const match = String(url).match(/(?:id=|d\/)([\w-]+)/);
@@ -499,7 +439,7 @@ function getRentalDirectImageUrl_(url) {
   return url;
 }
 
-function getRentalColumnLetter_(column) {
+function getSampleColumnLetter_(column) {
   let temp;
   let letter = "";
 
@@ -512,7 +452,7 @@ function getRentalColumnLetter_(column) {
   return letter;
 }
 
-function clearRentalContentAndProtections_(range) {
+function clearSampleContentAndProtections_(range) {
   const sheet = range.getSheet();
 
   range.clearContent();
