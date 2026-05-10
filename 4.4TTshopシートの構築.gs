@@ -371,7 +371,7 @@ function generateTTshopMatrix() {
 
       mvRow[idx] =
         `=IF($${col064Str}${r}="", "", ` +
-        `IFERROR(VLOOKUP($${col064Str}${r} & "-${size}", 'SKU'!$A:$BE, ${mobileStockIndex}, FALSE), ""))`;
+        `IFERROR(VLOOKUP($${col064Str}${r} & "-${size}", 'SKU'!$A:$BE, ${ttStockIndex}, FALSE), ""))`;
     });
 
     warehouseStockFormulas.push(whRow);
@@ -385,7 +385,7 @@ function generateTTshopMatrix() {
 
   // TTshop現在庫 AH:AM
   targetSheet
-    .getRange(fStart, 34, mobileStockFormulas.length, 6)
+    .getRange(fStart, 34, ttshopStockFormulas.length, 6)
     .setFormulas(ttshopStockFormulas);
 
   // ==========================================
