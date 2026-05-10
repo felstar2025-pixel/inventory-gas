@@ -104,7 +104,7 @@ function importMasterDataToSKU_V4() {
   }
 
   // ★ 17番(TikTok商品名)も必須チェックに追加しました
-  const requiredIds = ["01", "02", "03", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "16", "17"];
+  const requiredIds = ["01", "02", "03", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "16", "17", "1000", "1001", "1002"];
   for (let id of requiredIds) {
     if (!colMap[id]) {
       Browser.msgBox("エラー：MASTERシートの見出しに必須ID「" + id + "_」が見つかりません。");
@@ -265,7 +265,7 @@ function importMasterDataToSKU_V4() {
         
         if (existingStockMap.has(fullCode)) {
           outRow = outRow.concat(existingStockMap.get(fullCode));
-          /*
+        
           // 【Akiraさんロジック】関数が入る列の「過去の数値」を上書きで消す
           if (outRow.length > 25) outRow[25] = ""; // Z列（2001_全在庫合計）
           if (outRow.length > 26) outRow[26] = ""; // AA列（2002_累計実売数）
@@ -275,7 +275,7 @@ function importMasterDataToSKU_V4() {
           if (outRow.length > 37) outRow[37] = ""; // AL列（56_[TT Shop] 現在庫数）
           if (outRow.length > 41) outRow[41] = ""; // AP列（60_[移動販売] 在庫数）
           if (outRow.length > 44) outRow[44] = ""; // AS列（73_[レンタル] 在庫数）
-          */
+          
         }
              
         outputData.push(outRow);
