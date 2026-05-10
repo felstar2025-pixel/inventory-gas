@@ -265,12 +265,17 @@ function importMasterDataToSKU_V4() {
         
         if (existingStockMap.has(fullCode)) {
           outRow = outRow.concat(existingStockMap.get(fullCode));
-          
+          /*
           // 【Akiraさんロジック】関数が入る列の「過去の数値」を上書きで消す
+          if (outRow.length > 25) outRow[25] = ""; // Z列（2001_全在庫合計）
+          if (outRow.length > 26) outRow[26] = ""; // AA列（2002_累計実売数）
+          if (outRow.length > 27) outRow[27] = ""; // AB列（2003_概算実売金額）
+
           if (outRow.length > 33) outRow[33] = ""; // AH列（52_倉庫現在庫）
           if (outRow.length > 37) outRow[37] = ""; // AL列（56_[TT Shop] 現在庫数）
           if (outRow.length > 41) outRow[41] = ""; // AP列（60_[移動販売] 在庫数）
-          if (outRow.length > 45) outRow[45] = ""; // AT列（73_[レンタル] 在庫数）
+          if (outRow.length > 44) outRow[44] = ""; // AS列（73_[レンタル] 在庫数）
+          */
         }
              
         outputData.push(outRow);
