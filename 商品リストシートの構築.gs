@@ -1,9 +1,9 @@
 /*******************************************************
- * 商品一覧シート構築 V1
+ * 商品リストシート構築 V1
  *
  * 目的：
  * - 一度でも入庫・受け入れされた商品だけを表示
- * - VaMASTERの商品情報を商品一覧へ展開
+ * - VaMASTERの商品情報を商品リストへ展開
  * - SKUから064単位で在庫をサイズ別集計
  * - 全在庫と倉庫在庫だけマトリックス表示
  * - 在庫あり商品を上、在庫なし商品を下に並べる
@@ -11,18 +11,18 @@
  * シート名：
  * - VaMASTER
  * - SKU
- * - 商品一覧
+ * - 商品リスト
  *******************************************************/
 
 const PRODUCT_LIST_CONFIG = {
   SOURCE_VAMASTER: "VaMASTER",
   SOURCE_SKU: "SKU",
-  TARGET_SHEET: "商品一覧",
+  TARGET_SHEET: "商品リスト",
 
   HEADER_ROW: 6,
   DATA_START_ROW: 7,
 
-  // 商品一覧の固定列
+  // 商品リストの固定列
   TARGET: {
     TOTAL_COLS: 51, // AY列まで
 
@@ -42,7 +42,7 @@ const PRODUCT_LIST_CONFIG = {
 
   SIZE_ORDER: ["XS", "S", "M", "L", "XL", "F"],
 
-  // 商品一覧側で手入力・編集される可能性がある項目ID
+  // 商品リスト側で手入力・編集される可能性がある項目ID
   // 再構築しても、064が一致すれば復元します。
   MANUAL_KEEP_IDS: [
     "15",    // 卸価格(¥) ※式や手入力を残したい場合
@@ -77,13 +77,13 @@ function generateProductListSheet() {
   const targetSheet = ss.getSheetByName(PRODUCT_LIST_CONFIG.TARGET_SHEET);
 
   if (!vaSheet || !skuSheet || !targetSheet) {
-    Browser.msgBox("VaMASTER / SKU / 商品一覧 のいずれかのシートが見つかりません。");
+    Browser.msgBox("VaMASTER / SKU / 商品リスト のいずれかのシートが見つかりません。");
     return;
   }
 
   const confirm = Browser.msgBox(
-    "商品一覧シート構築",
-    "商品一覧シートを再構築します。\n既存の販売価格・説明文・ステータスなどは064コードをキーに復元します。\n\n実行しますか？",
+    "商品リストシート構築",
+    "商品リストシートを再構築します。\n既存の販売価格・説明文・ステータスなどは064コードをキーに復元します。\n\n実行しますか？",
     Browser.Buttons.YES_NO
   );
 
@@ -109,12 +109,12 @@ function generateProductListSheet() {
   }
 
   if (!tgtColMap["064"]) {
-    Browser.msgBox("商品一覧シートに 064_ 商品コード列が見つかりません。");
+    Browser.msgBox("商品リストシートに 064_ 商品コード列が見つかりません。");
     return;
   }
 
   // ==========================================
-  // Step 1: 商品一覧の既存入力バックアップ
+  // Step 1: 商品リストの既存入力バックアップ
   // ==========================================
 
   const backupMap = new Map();
@@ -272,7 +272,7 @@ function generateProductListSheet() {
   });
 
   // ==========================================
-  // Step 4: 商品一覧の初期化
+  // Step 4: 商品リストの初期化
   // ==========================================
 
   if (targetLastRow >= PRODUCT_LIST_CONFIG.DATA_START_ROW) {
@@ -311,7 +311,7 @@ function generateProductListSheet() {
       whTotal: 0
     };
 
-    // A〜AAなど、商品一覧の6行目にある項目IDを見てVaMASTERから持ってくる
+    // A〜AAなど、商品リストの6行目にある項目IDを見てVaMASTERから持ってくる
     Object.keys(tgtColMap).forEach(id => {
       const tgtCol = tgtColMap[id];
 
@@ -454,7 +454,7 @@ function generateProductListSheet() {
   });
 
   if (outputRows.length === 0) {
-    Browser.msgBox("商品一覧に展開できる商品がありませんでした。");
+    Browser.msgBox("商品リストに展開できる商品がありませんでした。");
     return;
   }
 
@@ -545,13 +545,13 @@ function generateProductListSheet() {
 
   try {
     SpreadsheetApp.getUi().alert(
-      "商品一覧シート構築完了\n\n" +
+      "商品リストシート構築完了\n\n" +
       "展開商品数：" + sortedRows.length + "件\n" +
       "表示対象：一度でも入庫・受け入れされた商品"
     );
   } catch (e) {
     SpreadsheetApp.getActiveSpreadsheet().toast(
-      "商品一覧シート構築完了",
+      "商品リストシート構築完了",
       "完了",
       10
     );
