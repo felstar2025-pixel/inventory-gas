@@ -71,6 +71,46 @@ function createVariationMaster() {
       if (!masterLookup.has(mKey)) masterLookup.set(mKey, DATA_START_ROW + mIdx);
     });
 
+    // --- 3.5 参照元コードMapを作成 ---
+// MASTER側の 065_参照元フラグ が「元」の行を探し、
+// 同じ 062相当（型番＋バリエーション）ごとに、参照元064コードを記憶する。
+const referenceSourceMap = new Map();
+
+if (mCols["065"]) {
+  masterData.forEach(row => {
+    const refFlag = String(row[mCols["065"] - 1] || "").trim();
+    if (refFlag !== "元") return;
+
+    const modelNum = String(row[mCols["06"] - 1] || "").trim();
+    if (!modelNum) return;
+
+    const rawSupplier = String(row[mCols["01"] - 1] || "");
+    const suppCode = rawSupplier.split(/[:：,，]/)[0].trim();
+
+    const rawVariations = String(
+      row[mCols["10"] - 1] ||
+      row[mCols["11"] - 1] ||
+      row[mCols["12"] - 1] ||
+      ""
+    ).split(/[,、\n]/);
+
+    rawVariations.forEach(v => {
+      const vRaw = String(v || "").trim();
+      if (!vRaw) return;
+
+      const vMatch = vRaw.match(/^([A-ZNS0-9]+)[:：]\s*(.*)/i);
+      const vCode = vMatch ? vMatch[1] : vRaw;
+
+      const selectTagCode = `${modelNum}-${vCode}`;      // 062相当
+      const reference064 = `${modelNum}-${vCode}-${suppCode}`; // 参照元064
+
+      if (!referenceSourceMap.has(selectTagCode)) {
+        referenceSourceMap.set(selectTagCode, reference064);
+      }
+    });
+  });
+}
+
     // --- 4. 展開 ＆ 【合体】 ---
     const newRows = [];
     const copyTasks = [];
@@ -103,6 +143,14 @@ function createVariationMaster() {
         if (vCols["09"])  newRow[vCols["09"] - 1]  = row[mCols["09"] - 1];
         if (vCols["13"])  newRow[vCols["13"] - 1]  = row[mCols["13"] - 1];
         if (vCols["14"])  newRow[vCols["14"] - 1]  = row[mCols["14"] - 1];
+
+        // 065_参照元フラグ / 参照元コード
+        // MASTER側で「元」と付けた商品の064コードを、VaMASTER側へ自動展開する。
+        // 見つからなければ、自分自身の064コードを入れる。
+        if (vCols["065"]) {
+        const selectTagCode = `${modelNum}-${vCode}`;
+        newRow[vCols["065"] - 1] = referenceSourceMap.get(selectTagCode) || vKey;
+        }
 
         // 各言語のバリエーション名抽出
         ["10", "11", "12"].forEach(id => {
@@ -140,7 +188,7 @@ function createVariationMaster() {
 
         // コピペ対象外の項目を埋める
         Object.keys(vCols).forEach(id => {
-          const skip = ["064","06","01","09","10","11","12","101","111","121","04","05","15", ...COPY_TO_IDS];
+          const skip = ["064","065","06","01","09","10","11","12","101","111","121","04","05","15", ...COPY_TO_IDS];
           if (!skip.includes(id) && mCols[id]) {
             newRow[vCols[id] - 1] = row[mCols[id] - 1];
           }
