@@ -73,7 +73,7 @@ function createVariationMaster() {
 
     // --- 3.5 参照元コードMapを作成 ---
 // MASTER側の 065_参照元フラグ が「元」の行を探し、
-// 同じ 062相当（型番＋バリエーション）ごとに、参照元064コードを記憶する。
+// 同じ 06相当、参照元064コードを記憶する。
 const referenceSourceMap = new Map();
 
 if (mCols["065"]) {
@@ -101,11 +101,10 @@ if (mCols["065"]) {
       const vMatch = vRaw.match(/^([A-ZNS0-9]+)[:：]\s*(.*)/i);
       const vCode = vMatch ? vMatch[1] : vRaw;
 
-      const selectTagCode = `${modelNum}-${vCode}`;      // 062相当
       const reference064 = `${modelNum}-${vCode}-${suppCode}`; // 参照元064
 
-      if (!referenceSourceMap.has(selectTagCode)) {
-        referenceSourceMap.set(selectTagCode, reference064);
+      if (!referenceSourceMap.has(modelNum)) {
+        referenceSourceMap.set(modelNum, reference064);
       }
     });
   });
@@ -148,8 +147,7 @@ if (mCols["065"]) {
         // MASTER側で「元」と付けた商品の064コードを、VaMASTER側へ自動展開する。
         // 見つからなければ、自分自身の064コードを入れる。
         if (vCols["065"]) {
-        const selectTagCode = `${modelNum}-${vCode}`;
-        newRow[vCols["065"] - 1] = referenceSourceMap.get(selectTagCode) || vKey;
+        newRow[vCols["065"] - 1] = referenceSourceMap.get(modelNum) || vKey;
         }
 
         // 各言語のバリエーション名抽出
