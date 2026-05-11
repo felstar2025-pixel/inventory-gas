@@ -146,8 +146,8 @@ if (mCols["065"]) {
         // 065_参照元フラグ / 参照元コード
         // MASTER側で「元」と付けた商品の064コードを、VaMASTER側へ自動展開する。
         // 見つからなければ、自分自身の064コードを入れる。
-        if (vCols["065"]) {
-        newRow[vCols["065"] - 1] = referenceSourceMap.get(modelNum) || vKey;
+        if (vCols["066"]) {
+         newRow[vCols["066"] - 1] = referenceSourceMap.get(modelNum) || vKey;
         }
 
         // 各言語のバリエーション名抽出
@@ -186,7 +186,7 @@ if (mCols["065"]) {
 
         // コピペ対象外の項目を埋める
         Object.keys(vCols).forEach(id => {
-          const skip = ["064","065","06","01","09","10","11","12","101","111","121","04","05","15", ...COPY_TO_IDS];
+          const skip = ["064","066","06","01","09","10","11","12","101","111","121","04","05","15", ...COPY_TO_IDS];
           if (!skip.includes(id) && mCols[id]) {
             newRow[vCols[id] - 1] = row[mCols[id] - 1];
           }
