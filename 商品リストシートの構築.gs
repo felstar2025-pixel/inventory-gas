@@ -1,5 +1,5 @@
 /*******************************************************
- * 商品リストシート構築 V1.3.4【15式復活・AB〜AH手入力保持版】
+ * 商品リストシート構築 V1.3.5【15式実貼付・AB〜AH手入力保持版】
  *
  * 目的：
  * - 一度でも入庫・受け入れされた商品だけを表示
@@ -498,9 +498,33 @@ function generateProductListSheet() {
   const finalLastRow = neededMaxRows;
   const col064Str = getProductListColumnLetter_(tgtColMap["064"]);
 
-  // ① 15_卸価格(¥) はGASでは触らない。
-  //    13_購入通貨 と 14_卸価格(NT) を元に、
-  //    15列側の式はシート側で管理する。
+  // ① 15_卸価格(¥) の円換算式
+  //    13_購入通貨 と 14_卸価格(NT) を、項目IDで見つけた列から参照する。
+  //    CHOOSEで2列だけを組み直すので、13列と14列の間に別列があってもズレない。
+  const colJpy = tgtColMap["15"];
+  if (colJpy && tgtColMap["13"] && tgtColMap["14"]) {
+    const countryColLetter = getProductListColumnLetter_(tgtColMap["13"]);
+    const priceColLetter = getProductListColumnLetter_(tgtColMap["14"]);
+
+    const formula =
+  `=BYROW(${getProductListColumnLetter_(tgtColMap["13"])}${fStart}:${getProductListColumnLetter_(tgtColMap["14"])}${finalLastRow}, ` +
+  `LAMBDA(row, IF(INDEX(row, 1, 2)="", "", ` +
+  `IF(INDEX(row, 1, 1)="VN", INDEX(row, 1, 2) * ${PRODUCT_LIST_CONFIG.EXCHANGE_RATE_CELLS.VN}, ` +
+  `IF(INDEX(row, 1, 1)="CN", INDEX(row, 1, 2) * ${PRODUCT_LIST_CONFIG.EXCHANGE_RATE_CELLS.CN}, "")))))`;
+  
+    targetSheet.getRange(fStart, colJpy).setFormula(formula);
+  } else {
+    const missing = [];
+    if (!tgtColMap["13"]) missing.push("13_購入通貨");
+    if (!tgtColMap["14"]) missing.push("14_卸価格(NT)");
+    if (!tgtColMap["15"]) missing.push("15_卸価格(¥)");
+
+    report.notes.push(
+      "15_卸価格(¥) の円換算式は貼っていません。商品リストに " +
+      missing.join(" / ") +
+      " が見つかりませんでした。"
+    );
+  }
 
   // ② 全在庫・倉庫在庫のサイズ別VLOOKUP関数
   const skuLookupLastCol = Math.max(skuSheet.getLastColumn(), skuColMap[allStockId] || 1, skuColMap[whStockId] || 1);
