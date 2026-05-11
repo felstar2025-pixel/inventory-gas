@@ -1,5 +1,5 @@
 /*******************************************************
- * 商品リストシート構築 V1.3【倉庫マトリックス方式・copyTo整理版】
+ * 商品リストシート構築 V1.3.4【15式復活・AB〜AH手入力保持版】
  *
  * 目的：
  * - 一度でも入庫・受け入れされた商品だけを表示
@@ -24,7 +24,7 @@ const PRODUCT_LIST_CONFIG = {
   DATA_START_ROW: 7,
 
   TARGET: {
-    TOTAL_COLS: 55, // BC列まで（AZ〜BCは予備保存列）
+    TOTAL_COLS: 55, // BC列まで（AB〜AHは手入力保持、AI以降は固定列）
 
     // AI:AO 全在庫
     ALL_STOCK_START_COL: 35, // AI
@@ -43,7 +43,7 @@ const PRODUCT_LIST_CONFIG = {
   SIZE_ORDER: ["XS", "S", "M", "L", "XL", "F"],
 
   // 商品リスト側で手入力・編集される可能性が高い項目ID
-  // ※15は倉庫マトリックス同様、再構築後に関数を貼るため保存対象にしない
+  // ※15_卸価格(¥) はGASが7行目にBYROW式を貼るため、保存対象にしない。
   MANUAL_KEEP_IDS: [
     "17",    // 商品名(TT)
     "1000",  // TikTok価格
@@ -64,9 +64,17 @@ const PRODUCT_LIST_CONFIG = {
   // 068: 参照元写真集は特殊処理で、参照元行の22をcopyToする
   COPY_TO_IDS: ["22"],
 
-  // 予備メモ・将来拡張用として、列位置で保存する列
-  // AZ〜BC = 52〜55
-  EXTRA_KEEP_COLS: [52, 53, 54, 55],
+  // 商品リスト側で自由入力欄として残す列位置
+  // AB〜AH = 28〜34
+  // 064をキーにして再構築後も復元する
+  EXTRA_KEEP_COLS: [28, 29, 30, 31, 32, 33, 34],
+
+  // 15_卸価格(¥) のBYROW式で使う為替レートセル
+  // 必要ならここだけ変えれば、貼られる式も変わる
+  EXCHANGE_RATE_CELLS: {
+    VN: "$N$2",
+    CN: "$N$3"
+  },
 
   // 固定列の見出し名。6行目に入っていなくても、コード側でこの列を固定利用する
   FIXED_HEADERS: {
@@ -114,8 +122,6 @@ function generateProductListSheet() {
   if (!tgtColMap["064"]) return Browser.msgBox("商品リストシートに 064_ 商品コード列が見つかりません。");
 
   // 固定列の見出しを補正
-  setProductListFixedHeaders_(targetSheet);
-
   // 不足している項目IDは処理を止めず、最後にレポート表示する
   collectProductListMissingIdReport_(report, vaColMap, skuColMap, tgtColMap);
 
@@ -150,7 +156,7 @@ function generateProductListSheet() {
       saved[PRODUCT_LIST_CONFIG.TARGET.SALES_STATUS_COL] =
         row[PRODUCT_LIST_CONFIG.TARGET.SALES_STATUS_COL - 1];
 
-      // AZ〜BCの予備列も列位置で保存
+      // AA〜AGの自由入力欄も列位置で保存
       PRODUCT_LIST_CONFIG.EXTRA_KEEP_COLS.forEach(col => {
         if (col <= row.length) saved[col] = row[col - 1];
       });
@@ -298,7 +304,7 @@ function generateProductListSheet() {
       const tgtCol = tgtColMap[id];
       if (tgtCol >= PRODUCT_LIST_CONFIG.TARGET.ALL_STOCK_START_COL) return;
 
-      // 15は後でBYROW関数を貼る
+        // 15_卸価格(¥) は再構築後にBYROW式を貼るため、VaMASTERからは転記しない。
       if (id === "15") return;
 
       // 067_参照元商品URL：066の参照元コードからVaMASTERの03を取る
@@ -370,7 +376,7 @@ function generateProductListSheet() {
       });
     }
 
-    // 表示区分・並び順の初期値。後で関数も貼る
+    // 表示区分・並び順の初期値。ARRAYFORMULAは貼らず、再構築時点の値として保持
     const sortNo = stockInfo.allTotal > 0 ? 1 : 2;
     rowData[PRODUCT_LIST_CONFIG.TARGET.SORT_COL - 1] = sortNo;
     rowData[PRODUCT_LIST_CONFIG.TARGET.DISPLAY_TYPE_COL - 1] = stockInfo.allTotal > 0 ? "在庫あり" : "在庫なし";
@@ -460,19 +466,15 @@ function generateProductListSheet() {
     targetSheet.insertRowsAfter(currentMaxRows, neededMaxRows - currentMaxRows);
   }
 
-  targetSheet.getRange(
+  // 15_卸価格(¥) 列はこのあとBYROW式を貼るため、
+  // setValues / setBackgrounds の対象から外す。
+  writeProductListRowsExcludingColumns_(
+    targetSheet,
     PRODUCT_LIST_CONFIG.DATA_START_ROW,
-    1,
-    sortedRows.length,
-    PRODUCT_LIST_CONFIG.TARGET.TOTAL_COLS
-  ).setValues(sortedRows);
-
-  targetSheet.getRange(
-    PRODUCT_LIST_CONFIG.DATA_START_ROW,
-    1,
-    sortedBgs.length,
-    PRODUCT_LIST_CONFIG.TARGET.TOTAL_COLS
-  ).setBackgrounds(sortedBgs);
+    sortedRows,
+    sortedBgs,
+    [tgtColMap["15"]].filter(Boolean)
+  );
 
   // ==========================================
   // Step 8: スマートチップ・リンク系 copyTo
@@ -496,14 +498,9 @@ function generateProductListSheet() {
   const finalLastRow = neededMaxRows;
   const col064Str = getProductListColumnLetter_(tgtColMap["064"]);
 
-  // ① 15_卸価格(¥) 日本円数式。13と14がある時だけ貼る
-  const colJpy = tgtColMap["15"];
-  if (colJpy && tgtColMap["13"] && tgtColMap["14"]) {
-    const formula = `=BYROW(${getProductListColumnLetter_(tgtColMap["13"])}${fStart}:${getProductListColumnLetter_(tgtColMap["14"])}${finalLastRow}, LAMBDA(row, IF(INDEX(row, 1, 2)="", "", IF(INDEX(row, 1, 1)="VN", INDEX(row, 1, 2) * $Q$2, IF(INDEX(row, 1, 1)="CN", INDEX(row, 1, 2) * $Q$3, "")))))`;
-    targetSheet.getRange(fStart, colJpy).setFormula(formula);
-  } else if (colJpy) {
-    report.notes.push("15_卸価格(¥) はありますが、13_購入通貨 または 14_卸価格(NT) が見つからないため、円換算式は貼っていません。");
-  }
+  // ① 15_卸価格(¥) はGASでは触らない。
+  //    13_購入通貨 と 14_卸価格(NT) を元に、
+  //    15列側の式はシート側で管理する。
 
   // ② 全在庫・倉庫在庫のサイズ別VLOOKUP関数
   const skuLookupLastCol = Math.max(skuSheet.getLastColumn(), skuColMap[allStockId] || 1, skuColMap[whStockId] || 1);
@@ -542,12 +539,10 @@ function generateProductListSheet() {
   targetSheet.getRange(fStart, PRODUCT_LIST_CONFIG.TARGET.WH_STOCK_SUM_COL)
     .setFormula(`=BYROW(AP${fStart}:AU${finalLastRow}, LAMBDA(row, IF(COUNTA(row)=0, "", SUM(row))))`);
 
-  // ④ 並び順・表示区分も在庫合計に追従する式にする
-  targetSheet.getRange(fStart, PRODUCT_LIST_CONFIG.TARGET.SORT_COL)
-    .setFormula(`=ARRAYFORMULA(IF(AO${fStart}:AO${finalLastRow}="", "", IF(AO${fStart}:AO${finalLastRow}>0, 1, 2)))`);
-
-  targetSheet.getRange(fStart, PRODUCT_LIST_CONFIG.TARGET.DISPLAY_TYPE_COL)
-    .setFormula(`=ARRAYFORMULA(IF(AO${fStart}:AO${finalLastRow}="", "", IF(AO${fStart}:AO${finalLastRow}>0, "在庫あり", "在庫なし")))`);
+  // ④ 並び順・表示区分は、再構築時点の値として保持する。
+  // ※ここにARRAYFORMULAを貼ると、すでにsetValuesで入れたAW/AXの値と衝突して
+  //   「配列結果を展開できません」エラーになる。
+  // ※行の並び替えはGAS再構築時に行うため、AW/AXだけリアルタイム関数化しない。
 
   // ⑤ 関数列・在庫列に警告保護
   const protectRanges = [
@@ -556,9 +551,10 @@ function generateProductListSheet() {
     targetSheet.getRange(`AW${fStart}:AX${finalLastRow}`)
   ];
 
-  if (colJpy && tgtColMap["13"] && tgtColMap["14"]) {
-    protectRanges.push(targetSheet.getRange(fStart, colJpy, finalLastRow - fStart + 1, 1));
+  if (tgtColMap["15"] && tgtColMap["13"] && tgtColMap["14"]) {
+    protectRanges.push(targetSheet.getRange(fStart, tgtColMap["15"], finalLastRow - fStart + 1, 1));
   }
+
 
   protectRanges.forEach(rng => rng.protect().setWarningOnly(true));
 
@@ -574,6 +570,32 @@ function generateProductListSheet() {
 /*******************************************************
  * ヘルパー
  *******************************************************/
+
+function writeProductListRowsExcludingColumns_(sheet, startRow, rows, backgrounds, excludeCols) {
+  const excludeSet = new Set((excludeCols || []).filter(Boolean));
+  const totalCols = PRODUCT_LIST_CONFIG.TARGET.TOTAL_COLS;
+  const rowCount = rows.length;
+
+  let startCol = 1;
+
+  while (startCol <= totalCols) {
+    while (startCol <= totalCols && excludeSet.has(startCol)) startCol++;
+    if (startCol > totalCols) break;
+
+    let endCol = startCol;
+    while (endCol + 1 <= totalCols && !excludeSet.has(endCol + 1)) endCol++;
+
+    const width = endCol - startCol + 1;
+    const valuesPart = rows.map(row => row.slice(startCol - 1, endCol));
+    const bgsPart = backgrounds.map(row => row.slice(startCol - 1, endCol));
+
+    sheet.getRange(startRow, startCol, rowCount, width).setValues(valuesPart);
+    sheet.getRange(startRow, startCol, rowCount, width).setBackgrounds(bgsPart);
+
+    startCol = endCol + 1;
+  }
+}
+
 function createProductListReport_() {
   return {
     warnings: [],
@@ -639,8 +661,9 @@ function buildProductListResultMessage_(rowCount, report) {
     "",
     "展開商品数：" + rowCount + "件",
     "在庫マトリックス：SKU参照関数で作成",
-    "手入力データ：064コードで復元",
+    "手入力データ：指定ID＋AB〜AHを064コードで復元",
     "copyTo対象：22_写真集 / 068_参照元写真集",
+    "15_卸価格(¥)：7行目にBYROW式を貼付",
     ""
   ];
 
@@ -739,18 +762,8 @@ function clearProductListContentAndProtections_(range) {
   sheet.clearConditionalFormatRules();
 }
 
-function setProductListFixedHeaders_(sheet) {
-  const h = PRODUCT_LIST_CONFIG.FIXED_HEADERS;
-
-  sheet.getRange(PRODUCT_LIST_CONFIG.HEADER_ROW, PRODUCT_LIST_CONFIG.TARGET.ALL_STOCK_START_COL, 1, 7)
-    .setValues([h.ALL]);
-
-  sheet.getRange(PRODUCT_LIST_CONFIG.HEADER_ROW, PRODUCT_LIST_CONFIG.TARGET.WH_STOCK_START_COL, 1, 7)
-    .setValues([h.WH]);
-
-  sheet.getRange(PRODUCT_LIST_CONFIG.HEADER_ROW, PRODUCT_LIST_CONFIG.TARGET.SORT_COL, 1, 3)
-    .setValues([h.CONTROL]);
-}
+// ※v1.3.3では6行目の項目ID・見出しはGASで上書きしません。
+// 固定ヘッダー自動書き込み処理は削除しました。
 
 function applyProductListMatrixBackground_(rowBg, actualSizes) {
   // 全在庫 AI:AN、倉庫 AP:AU の通常色
