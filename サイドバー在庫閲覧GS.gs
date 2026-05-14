@@ -1,155 +1,412 @@
 /**
  * =========================================================================
- * 【重要】このビューアー（在庫閲覧専用サイドバー）を使うための切り替え手順
- * =========================================================================
- * *「サイドバー注文機能付き」から、この「サイドバー在庫閲覧用」に切り替えるためには、
- * サイドバーを開く関数（showInit）を1箇所だけ書き換える必要があります。
- * * 変更前： var html = HtmlService.createTemplateFromFile('Sidebar')
- *   変更後： var html = HtmlService.createTemplateFromFile('sidebar_view_only')
+ * サイドバー在庫閲覧GS.gs
+ * Viewer版：sidebar_view_only.html 用
+ *
+ * 目的：
+ * - sidebar_view_only.html はそのまま使う
+ * - クリックされたシートからは「商品を特定するコード」だけ取る
+ * - 表示する商品情報は VaMASTER から取得する
+ * - 在庫情報は SKU から取得する
+ *
+ * クリック条件：
+ * - 各シート6行目の項目IDが「04_」で始まる列をクリックした時だけ反応
+ *
+ * 主キー：
+ * - 優先1：064_商品コード[Patt+Vari+Sup]
+ * - 優先2：061_完全SKUコード から末尾サイズを除去して064化
+ * - 優先3：06_商品コード（先頭7文字）でVaMASTERを予備検索
  * =========================================================================
  */
 
+
 /**
- * サイドバー(ビューアー版)から呼び出される専用の関数
- * ★アキラさん究極設計【ハイブリッド版】★修正版
- * 基本情報（写真・名前等）はMASTERから直接取得し、在庫情報だけSKUからかき集める！
+ * sidebar_view_only.html から呼ばれる関数
  */
 function getSelectedImageUrlViewer() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getActiveSheet(); 
-  const range = sheet.getActiveCell();
+  const activeSheet = ss.getActiveSheet();
+  const range = activeSheet.getActiveCell();
+
+  const headerRow = 6;
   const row = range.getRow();
   const col = range.getColumn();
-  
-  const headerRow = 6; 
-  if (row <= headerRow) return null; 
 
-  // =========================================================
-  // ① クリックした列が「04_」か確認し、MASTERシートの見出しを把握する
-  // =========================================================
-  const currentHeaders = sheet.getRange(headerRow, 1, 1, sheet.getLastColumn()).getValues()[0];
-  const clickedHeader = String(currentHeaders[col - 1] || "").trim();
-  
-  // クリックするのは「04_（写真表示）」の列で正解！
+  if (row <= headerRow) return null;
+
+  const currentHeaders = activeSheet
+    .getRange(headerRow, 1, 1, activeSheet.getLastColumn())
+    .getValues()[0];
+
+  const clickedHeader = normalizeViewerHeader_(currentHeaders[col - 1]);
+
+  // 04_写真列をクリックした時だけ反応
   if (!clickedHeader.startsWith("04_")) return null;
 
-  const getMasterCol = (idPrefix) => {
-    const idx = currentHeaders.findIndex(h => String(h).trim().startsWith(idPrefix));
-    return idx !== -1 ? idx + 1 : null;
+  const currentColMap = getViewerColMapFromHeaders_(currentHeaders);
+
+  // クリックした行から商品特定コードを取得
+  const clickedKey = getViewerClickedProductKey_(activeSheet, row, currentColMap);
+
+  if (!clickedKey.rawKey) {
+    return makeViewerEmptyResult_("-", "商品コードがありません");
+  }
+
+  const vaSheet = ss.getSheetByName("VaMASTER");
+  if (!vaSheet) {
+    return makeViewerEmptyResult_(clickedKey.displayCode, "VaMASTERシートが見つかりません");
+  }
+
+  const vaInfo = findViewerVaMasterRow_(vaSheet, clickedKey, headerRow);
+
+  if (!vaInfo) {
+    return makeViewerEmptyResult_(clickedKey.displayCode, "VaMASTERに該当商品がありません");
+  }
+
+  const vaRow = vaInfo.row;
+  const vaColMap = vaInfo.colMap;
+
+  // VaMASTERから表示情報を取得
+  const code =
+    getViewerValue_(vaRow, vaColMap, "064") ||
+    getViewerValue_(vaRow, vaColMap, "06") ||
+    clickedKey.displayCode;
+
+  const primaryPhotoUrl =
+    getViewerRichOrValue_(vaSheet, vaInfo.rowNumber, vaColMap["05"]) ||
+    getViewerRichOrValue_(vaSheet, vaInfo.rowNumber, vaColMap["04"]) ||
+    "";
+
+  const siteUrl =
+    getViewerRichOrValue_(vaSheet, vaInfo.rowNumber, vaColMap["03"]) || "";
+
+  const nameEn =
+    getViewerValue_(vaRow, vaColMap, "17") ||
+    getViewerValue_(vaRow, vaColMap, "111") ||
+    getViewerValue_(vaRow, vaColMap, "08") ||
+    "";
+
+  const nameJp =
+    getViewerValue_(vaRow, vaColMap, "121") ||
+    getViewerValue_(vaRow, vaColMap, "16") ||
+    getViewerValue_(vaRow, vaColMap, "12") ||
+    "";
+
+  const priceVn = toViewerNumber_(getViewerValue_(vaRow, vaColMap, "14"));
+  const priceJp = toViewerNumber_(getViewerValue_(vaRow, vaColMap, "15"));
+
+  // 在庫情報はSKUから取得
+  const key064 =
+    getViewerValue_(vaRow, vaColMap, "064") ||
+    clickedKey.key064 ||
+    "";
+
+  const fallbackBaseCode =
+    getViewerValue_(vaRow, vaColMap, "06") ||
+    clickedKey.baseCode ||
+    "";
+
+  const stockData = collectViewerStockData_(ss, key064, fallbackBaseCode, headerRow);
+
+  const allUrls = String(primaryPhotoUrl || "")
+    .split(/[,、\n\s]+/)
+    .map(u => u.trim())
+    .filter(u => u !== "")
+    .map(getThumbnailUrlViewer);
+
+  return {
+    url: allUrls[0] || "",
+    urls: allUrls,
+    code: code,
+    nameEn: nameEn,
+    nameJp: nameJp,
+    priceVn: priceVn,
+    priceJp: priceJp,
+    siteUrl: siteUrl,
+    stockData: stockData
   };
+}
 
-  const colCode = getMasterCol("06_");
-  if (!colCode) return null;
 
-  // MASTERシートからクリックした行の商品コードを取得（先頭7文字）
-  const rawCode = String(sheet.getRange(row, colCode).getValue() || "").trim();
-  const itemCode = rawCode.substring(0, 7).toUpperCase(); 
-
-  if (rawCode === "" || !itemCode) {
-    return {
-      url: "", urls: [], code: "-", nameEn: "-", nameJp: "商品コードがありません",
-      priceVn: 0, priceJp: 0, siteUrl: "", stockData: []
-    };
+/**
+ * クリック行から商品特定キーを作る
+ */
+function getViewerClickedProductKey_(sheet, row, colMap) {
+  // 優先1：064
+  if (colMap["064"]) {
+    const key064 = String(sheet.getRange(row, colMap["064"]).getValue() || "").trim();
+    if (key064) {
+      return {
+        rawKey: key064,
+        key064: key064,
+        baseCode: key064.substring(0, 7).toUpperCase(),
+        displayCode: key064,
+        type: "064"
+      };
+    }
   }
 
-  // =========================================================
-  // ② 基本情報（写真・名前など）は「今クリックしているMASTERの行」から直接拾う！
-  // =========================================================
-  // ★大修正：URLの文字を引っこ抜くのは「04_」ではなく「05_」！！
-  const colPhotoUrl = getMasterCol("05_"); 
-  const colSiteUrl  = getMasterCol("03_");
-  const colNameEn   = getMasterCol("08_") || getMasterCol("111_"); 
-  const colNameJp   = getMasterCol("16_") || getMasterCol("121_");
-  const colPriceVn  = getMasterCol("14_");
-  const colPriceJp  = getMasterCol("15_");
-
-  let primaryPhotoUrl = "";
-  if (colPhotoUrl) {
-    // 05_列のセルから、スマートチップまたは通常のURL文字を読み取る
-    const richCell = sheet.getRange(row, colPhotoUrl).getRichTextValue();
-    if (richCell) primaryPhotoUrl = richCell.getLinkUrl() || richCell.getText();
-    if (!primaryPhotoUrl) primaryPhotoUrl = String(sheet.getRange(row, colPhotoUrl).getValue() || "");
+  // 優先2：061 完全SKUコードから064を作る
+  if (colMap["061"]) {
+    const fullSku = String(sheet.getRange(row, colMap["061"]).getValue() || "").trim();
+    const key064 = convertViewerSkuTo064_(fullSku);
+    if (key064) {
+      return {
+        rawKey: fullSku,
+        key064: key064,
+        baseCode: key064.substring(0, 7).toUpperCase(),
+        displayCode: key064,
+        type: "061"
+      };
+    }
   }
 
-  const siteUrl = colSiteUrl ? String(sheet.getRange(row, colSiteUrl).getValue() || "") : "";
-  const nameEn  = colNameEn ? String(sheet.getRange(row, colNameEn).getValue() || "") : "";
-  const nameJp  = colNameJp ? String(sheet.getRange(row, colNameJp).getValue() || "") : "";
-  const priceVn = colPriceVn ? Number(sheet.getRange(row, colPriceVn).getValue()) || 0 : 0;
-  const priceJp = colPriceJp ? Number(sheet.getRange(row, colPriceJp).getValue()) || 0 : 0;
+  // 優先3：06 商品コード。曖昧なので予備
+  if (colMap["06"]) {
+    const rawCode = String(sheet.getRange(row, colMap["06"]).getValue() || "").trim();
+    const baseCode = rawCode.substring(0, 7).toUpperCase();
+    if (baseCode) {
+      return {
+        rawKey: rawCode,
+        key064: "",
+        baseCode: baseCode,
+        displayCode: baseCode,
+        type: "06"
+      };
+    }
+  }
 
-  // =========================================================
-  // ③ SKUシートに行き、在庫・バリエーション情報「だけ」をかき集める
-  // =========================================================
-  const skuSheet = ss.getSheetByName("SKU");
-  let stockData = [];
-  
-  if (skuSheet) {
-    const skuHeaders = skuSheet.getRange(headerRow, 1, 1, skuSheet.getLastColumn()).getValues()[0];
-    const getSkuCol = (idPrefix) => {
-      const idx = skuHeaders.findIndex(h => String(h).trim().startsWith(idPrefix));
-      return idx !== -1 ? idx + 1 : null;
-    };
+  return {
+    rawKey: "",
+    key064: "",
+    baseCode: "",
+    displayCode: "-",
+    type: ""
+  };
+}
 
-    const colSkuFullCode = getSkuCol("06_") || getSkuCol("061_"); 
-    const colVar         = getSkuCol("11_");
-    const colSize        = getSkuCol("09_");
-    const colStock       = getSkuCol("52_"); // 在庫列
 
-    if (colSkuFullCode) {
-      const skuData = skuSheet.getDataRange().getValues();
-      for (let i = headerRow; i < skuData.length; i++) {
-        let skuFullCode = String(skuData[i][colSkuFullCode - 1] || "").trim();
-        let baseCodeOfSku = skuFullCode.substring(0, 7).toUpperCase();
-        
-        // 先頭7文字が一致したら、サイズと在庫の情報をストックする
-        if (baseCodeOfSku === itemCode && baseCodeOfSku !== "") {
-          let currentStock = colStock ? Number(skuData[i][colStock - 1] || 0) : 0;
-          stockData.push({
-            variation: colVar ? String(skuData[i][colVar - 1] || "") : "基本",
-            size: colSize ? String(skuData[i][colSize - 1] || "") : "-",
-            stock: currentStock
-          });
-        }
+/**
+ * VaMASTERから該当行を探す
+ */
+function findViewerVaMasterRow_(vaSheet, clickedKey, headerRow) {
+  const lastRow = vaSheet.getLastRow();
+  const lastCol = vaSheet.getLastColumn();
+
+  if (lastRow <= headerRow) return null;
+
+  const headers = vaSheet.getRange(headerRow, 1, 1, lastCol).getValues()[0];
+  const colMap = getViewerColMapFromHeaders_(headers);
+
+  const values = vaSheet
+    .getRange(headerRow + 1, 1, lastRow - headerRow, lastCol)
+    .getValues();
+
+  // 064が取れているなら、VaMASTERの064で完全一致検索
+  if (clickedKey.key064 && colMap["064"]) {
+    for (let i = 0; i < values.length; i++) {
+      const va064 = String(values[i][colMap["064"] - 1] || "").trim();
+      if (va064 === clickedKey.key064) {
+        return {
+          row: values[i],
+          rowNumber: headerRow + 1 + i,
+          colMap: colMap
+        };
       }
     }
   }
 
-  // もしSKUシートにデータが1件もなかった場合のフォロー
-  if (stockData.length === 0 && nameJp === "") {
-    return {
-      url: "", urls: [], code: itemCode, nameEn: "-", nameJp: "SKUシートに登録がありません",
-      priceVn: 0, priceJp: 0, siteUrl: "", stockData: []
-    };
+  // 064で見つからない場合だけ、06で予備検索
+  // 06はバリエーション違い・サプライヤー違いが曖昧になるので最後の手段
+  if (clickedKey.baseCode && colMap["06"]) {
+    for (let i = 0; i < values.length; i++) {
+      const va06 = String(values[i][colMap["06"] - 1] || "")
+        .trim()
+        .substring(0, 7)
+        .toUpperCase();
+
+      if (va06 === clickedKey.baseCode) {
+        return {
+          row: values[i],
+          rowNumber: headerRow + 1 + i,
+          colMap: colMap
+        };
+      }
+    }
   }
 
-  // =========================================================
-  // ④ 写真URLの変換（神ツール制限突破版）
-  // =========================================================
-  const allUrls = primaryPhotoUrl.split(/[,、\n\s]+/).map(u => u.trim()).filter(u => u !== "").map(getThumbnailUrlViewer);
-  
+  return null;
+}
+
+
+/**
+ * SKUから在庫情報を集める
+ */
+function collectViewerStockData_(ss, key064, fallbackBaseCode, headerRow) {
+  const skuSheet = ss.getSheetByName("SKU");
+  if (!skuSheet) return [];
+
+  const lastRow = skuSheet.getLastRow();
+  const lastCol = skuSheet.getLastColumn();
+
+  if (lastRow <= headerRow) return [];
+
+  const headers = skuSheet.getRange(headerRow, 1, 1, lastCol).getValues()[0];
+  const colMap = getViewerColMapFromHeaders_(headers);
+
+  const colFullSku = colMap["061"] || colMap["06"]; // 古いSKU構成の保険
+  const colSku064 = colMap["064"];
+  const colVar = colMap["12"] || colMap["11"] || colMap["10"];
+  const colSize = colMap["09"];
+  const colStock = colMap["52"]; // 倉庫現在庫
+
+  if (!colFullSku && !colSku064) return [];
+
+  const values = skuSheet
+    .getRange(headerRow + 1, 1, lastRow - headerRow, lastCol)
+    .getValues();
+
+  const result = [];
+
+  values.forEach(row => {
+    const sku064 = colSku064
+      ? String(row[colSku064 - 1] || "").trim()
+      : "";
+
+    const fullSku = colFullSku
+      ? String(row[colFullSku - 1] || "").trim()
+      : "";
+
+    const derived064 = sku064 || convertViewerSkuTo064_(fullSku);
+    const baseCode = (derived064 || fullSku).substring(0, 7).toUpperCase();
+
+    let matched = false;
+
+    if (key064 && derived064 === key064) {
+      matched = true;
+    } else if (!key064 && fallbackBaseCode && baseCode === fallbackBaseCode.substring(0, 7).toUpperCase()) {
+      matched = true;
+    }
+
+    if (!matched) return;
+
+    result.push({
+      variation: colVar ? String(row[colVar - 1] || "") : "基本",
+      size: colSize ? String(row[colSize - 1] || "") : "-",
+      stock: colStock ? Number(row[colStock - 1] || 0) : 0
+    });
+  });
+
+  return result;
+}
+
+
+/**
+ * 完全SKUコードから064を作る
+ * 想定：BJ10001-N-BC-M → BJ10001-N-BC
+ */
+function convertViewerSkuTo064_(fullSku) {
+  const text = String(fullSku || "").trim();
+  if (!text) return "";
+
+  return text.replace(/-(XS|S|M|L|XL|F|FREE|FREE SIZE|フリー)$/i, "");
+}
+
+
+/**
+ * 6行目ヘッダーから項目IDマップを作る
+ */
+function getViewerColMapFromHeaders_(headers) {
+  const map = {};
+
+  headers.forEach((header, idx) => {
+    const text = normalizeViewerHeader_(header);
+    const match = text.match(/^(\d{2,4})_/);
+
+    if (match) {
+      map[match[1]] = idx + 1;
+    }
+  });
+
+  return map;
+}
+
+
+function normalizeViewerHeader_(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+    .replace(/＿/g, "_");
+}
+
+
+function getViewerValue_(row, colMap, id) {
+  if (!colMap[id]) return "";
+  return row[colMap[id] - 1];
+}
+
+
+function getViewerRichOrValue_(sheet, row, col) {
+  if (!col) return "";
+
+  const cell = sheet.getRange(row, col);
+
+  try {
+    const rich = cell.getRichTextValue();
+    if (rich) {
+      const link = rich.getLinkUrl();
+      const text = rich.getText();
+
+      if (link) return link;
+      if (text) return text;
+    }
+  } catch (e) {
+    // RichTextが取れない場合は通常値へ
+  }
+
+  return String(cell.getValue() || "");
+}
+
+
+function toViewerNumber_(value) {
+  if (value === "" || value === null || value === undefined) return 0;
+
+  const num = Number(value);
+
+  return isNaN(num) ? 0 : num;
+}
+
+
+function makeViewerEmptyResult_(code, message) {
   return {
-    url: allUrls[0] || "",
-    urls: allUrls, 
-    code: itemCode,
-    nameEn: nameEn,
-    nameJp: nameJp, 
-    priceVn: priceVn,
-    priceJp: priceJp,
-    siteUrl: siteUrl,
-    stockData: stockData 
+    url: "",
+    urls: [],
+    code: code || "-",
+    nameEn: "-",
+    nameJp: message || "-",
+    priceVn: 0,
+    priceJp: 0,
+    siteUrl: "",
+    stockData: []
   };
 }
 
+
 /**
- * 画像変換用：アキラさん提供の「制限突破版（サムネイル方式）」
+ * 画像変換用：Google Drive URLをサイドバー表示用サムネイルURLに変換
  */
 function getThumbnailUrlViewer(url) {
   if (!url) return "";
-  if (url.indexOf("drive.google.com") !== -1) {
-    const idMatch = url.match(/[-\w]{25,}/);
+
+  const text = String(url).trim();
+
+  if (text.indexOf("drive.google.com") !== -1) {
+    const idMatch = text.match(/[-\w]{25,}/);
+
     if (idMatch) {
       return "https://drive.google.com/thumbnail?id=" + idMatch[0] + "&sz=w1000";
     }
   }
-  return url;
+
+  return text;
 }
